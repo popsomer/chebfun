@@ -540,6 +540,9 @@ classdef chebfun
         % FIRPM filter design:
         varargout = firpm(n, freqs, f);
         
+        % FRICF filter design:
+        varargout = fircf(n, freqs, f);
+        
         % Inverse discrete cosine transform:
         u = idct(y, kind);
         
