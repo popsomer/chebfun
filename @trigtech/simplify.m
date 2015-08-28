@@ -24,9 +24,18 @@ if ( ~f.ishappy )
     return;
 end
 
+% STANDARDCHOP requires at least 17 coefficients, so for F such that LENGTH(F) <
+% 17, the coefficients are padded using prolong. The following
+% parameters are chosen explicitly to work with STANDARDCHOP.
+% See STANDARDCHOP for details.
+nold = length(f);
+N = max(17, round(nold*1.25 + 5));
+f = prolong(f,N);
+
 % Grab the coefficients of F.
 coeffs = abs(f.coeffs(end:-1:1,:));
 [n, m] = size(coeffs);
+coeffs = trigtech.vals2coeffs(trigtech.coeffs2vals(coeffs));
 
 % Use the default tolerance if none was supplied.
 p = chebfunpref;
@@ -54,23 +63,12 @@ end
 coeffs = flipud(coeffs);
 coeffs = [coeffs(1,:) ; kron(coeffs(2:end,:),[1 ; 1])];
 
-% STANDARDCHOP requires at least 17 coefficients, so for F such that LENGTH(F) <
-% 17, the coefficients are padded with entries between TOL^(7/6) and TOL.
-% These parameters are chosen explicitly to work with STANDARDCHOP.
-% See STANDARDCHOP for details.
-N = max(17, round(n*1.25 + 5));
-cfmins = min(abs(coeffs), [], 1);
-cfmaxs = max(abs(coeffs), [], 1);
-if ( n < N )
-    coeffs = [coeffs ; ones(N - n, 1)* ...
-              (max(tol.^(7/6), min(cfmins./cfmaxs,tol)).*cfmaxs)];
-end
-
 % Loop through columns to compute CUTOFF.
 cutoff = 1;
 for k = 1:m
     cutoff = max(cutoff, standardChop(coeffs(:,k), tol(k)));
 end
+cutoff = min(cutoff,nold);
 
 % Divide CUTOFF by 2.
 if ( mod(cutoff, 2) == 0 )
@@ -82,13 +80,12 @@ end
 % Now put the coefficients vector back together.
 coeffs = f.coeffs;
 if ( isEven )
-    coeffs = [.5*coeffs(n,:) ; coeffs(1:n-1,:) ; .5*coeffs(n,:)];
+    coeffs = [.5*coeffs(1,:) ; coeffs(2:n,:) ; .5*coeffs(1,:)];
     n = n + 1;
 end
 
 % Use CUTOFF to trim F.
 mid = (n + 1)/2;
-cutoff = min(cutoff, mid);
 f.coeffs = coeffs(mid-cutoff+1:mid+cutoff-1,:);
 f.values = trigtech.coeffs2vals(f.coeffs);
 
