@@ -538,7 +538,7 @@ classdef chebfun
         X = dtft(x);
 
         % FIRPM filter design:
-        varargout = firpm(n, freqs, f);
+        varargout = firpm(n, freqs, f, varargin);
         
         % FRICF filter design:
         varargout = fircf(n, freqs, f);

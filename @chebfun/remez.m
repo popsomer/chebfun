@@ -78,15 +78,15 @@ end
 % Run the main algorithm.
 while ( (delta/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 0) )
     fk = feval(f, xk);     % Evaluate on the exchange set.
-    w = baryWeights(xk);   % Barycentric weights for exchange set.
-
+    w = baryWeights(xk);   % Barycentric weights for exchange set.    
+        
     % Compute trial function and levelled reference error.
     if ( n == 0 )
         [p, h] = computeTrialFunctionPolynomial(fk, xk, w, m, N, dom);
     else
         [p, q, h] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom);
     end
-
+    
     % Perturb exactly-zero values of the levelled error.
     if ( h == 0 )
         h = 1e-19;
@@ -194,6 +194,7 @@ opts.maxIter = 20;           % Maximum number of allowable iterations.
 opts.displayIter = false;    % Print output after each iteration.
 opts.plotIter = false;       % Plot approximation at each iteration.
 opts.ignoredIntervals = [];
+opts.initialGuess = [];
 
 for k = 1:2:length(varargin)
     if ( strcmpi('tol', varargin{k}) )
@@ -204,6 +205,8 @@ for k = 1:2:length(varargin)
         opts.displayIter = true;
     elseif ( strcmpi('plotfcns', varargin{k}) )
         opts.plotIter = true;
+    elseif ( strcmpi('guess', varargin{k}) )
+        opts.initialGuess = varargin{k+1};
     elseif ( strcmpi('ignore', varargin{k}) )
         ignoredIntervals = varargin{k+1};
         if ( ~parseIgnoreIntervals(f, ignoredIntervals) )
@@ -390,6 +393,11 @@ if ( flag == 0 )
     end
 end
 
+% If polynomial and initial guess has been passed:
+p = opts.initialGuess;
+if ( n == 0 && ~isempty(p) )
+    xk = p;
+end
 xo = xk;
 
 end

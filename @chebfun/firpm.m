@@ -44,7 +44,7 @@ end
 freqs = freqs(2:end-1);
 freqs = freqs(:);
 intervals = sort(cos(pi*freqs));
-[p, err, status] = remez(g, n/2, 'ignore', intervals);
+[p, err, status] = remez(g, n/2, 'ignore', intervals, varargin{:});
 status.xk = sort(1/pi*acos(status.xk));
 a = chebcoeffs(p);
 h = [1/2*a(end:-1:2); a(1); 1/2*a(2:end);];
