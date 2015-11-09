@@ -1,22 +1,5 @@
-function [t, r, r_p, r_m] = trigpade(f, m, n, varargin)
+function [t, r_p, r_m] = trigpade(f, m, n, varargin)
 %TRIGPADE   Trigonometric Pade approximation.
-%   [P, Q, R_HANDLE] = CHEBPADE(F, M, N) computes polynomials P and Q of degree
-%   M and N, respectively, such that the rational function P/Q is the type (M,
-%   N) Chebyshev-Pade approximation of type Clenshaw-Lord to the CHEBFUN F. That
-%   is, the Chebyshev series of P/Q coincides with that for the CHEBFUN F up to
-%   the maximum possible order for the polynomial degrees permitted. R_HANDLE is
-%   a function handle for evaluating the rational function.
-%
-%   [P, Q, R_HANDLE] = CHEBPADE(F, M, N, TYPE) allows one to additionally
-%   specify the type of Chebyshev-Pade approximation sought. If TYPE is set to
-%   'clenshawlord', the Clenshaw-Lord approximation as described above is used.
-%   Alternatively, setting TYPE to 'maehly' computes a Maehly-type
-%   approximation, which satisfies a linearized version of the Chebyshev-Pade
-%   conditions.
-%
-%   [P, Q, R_HANDLE] = CHEBPADE(F, M, N, TYPE, K) uses only the K-th partial sum
-%   in the Chebyshev expansion of F when computing the approximation. CHEPADE(F,
-%   M, N, K) is shorthand for CHEBPADE(F, M, N, 'clenshawlord', K).
 %
 % See also PADEAPPROX.
 
@@ -40,20 +23,26 @@ coeffs_p(1) = 1/2*coeffs_p(1);
 coeffs_m(1) = 1/2*coeffs_m(1);
 
 % Solve the two Pade approximation problems
-[r_p, a_p, b_p] = padeapprox(coeffs_p, m, n, 1e-12);
-[r_m, a_m, b_m] = padeapprox(coeffs_m, m, n, 1e-12);
+[r_p, a_p, b_p] = padeapprox(coeffs_p, m, n);
+[r_m, a_m, b_m] = padeapprox(coeffs_m, m, n);
 
-% Construct the four trigonometric polynomials:
+%% Construct the four trigonometric polynomials:
+
+% padd coefficients with zeros:
 aa_p = [zeros(length(a_p)-1, 1); a_p];
 bb_p = [zeros(length(b_p)-1, 1); b_p];
+
+% denonminator and numerator for the +ve part
 tdp = chebfun(aa_p, 'coeffs', 'trig' );
 tnp = chebfun(bb_p, 'coeffs', 'trig' );
 
+% padd coefficients with zeros
 aa_m = [zeros(length(a_m)-1, 1); a_m];
 aa_m = flipud(aa_m);
 bb_m = [zeros(length(b_m)-1, 1); b_m];
 bb_m = flipud(bb_m);
 
+% denonminator and numerator for the -ve part
 tdm = chebfun(aa_m, 'coeffs', 'trig' );
 tnm = chebfun(bb_m, 'coeffs', 'trig' );
 
@@ -68,5 +57,4 @@ else
 	t = real(t);	
 end
 
-r = chebfun(@(x) t(x))
 end
