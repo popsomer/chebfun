@@ -268,9 +268,9 @@ Nc = Nop{2};
 dtmin = 5e-6;
 dtmax = 1e-1;
 if ( isreal(L) == 1 )
-    dtstab = round(600/(max(max(abs(L)))), 1, 'significant');
+    dtstab = round(600/(max(max(abs(L)))));
 else
-    dtstab = round(20/(max(max(abs(L)))), 1, 'significant');
+    dtstab = round(20/(max(max(abs(L)))));
 end
 if ( isempty(pref.dt) == 1 )
     % Adaptive in time:
@@ -457,6 +457,7 @@ pref = spinpref();
 if ( strcmpi(pdeobj, 'KS') == 1 )
     u0 = chebfun('cos(x/16).*(1 + sin((x-1)/16))', [0 32*pi], 'trig');
     tspan = [0 300];
+    pref.dt = 5e-2;
 elseif ( strcmpi(pdeobj, 'AC') == 1 )
     u0 = chebfun(@(x) tanh(2*sin(x)) + 3*exp(-27.*(x-4.2).^2) ...
         - 3*exp(-23.5.*(x-pi/2).^2) + 3*exp(-38.*(x-5.4).^2), [0 2*pi], 'trig');
@@ -467,13 +468,14 @@ elseif ( strcmpi(pdeobj, 'KdV') == 1 )
     u0 = @(x) 3*A*sech(.5*sqrt(A)*x).^2 + 3*B*sech(.5*sqrt(B)*(x-1)).^2;
     u0 = chebfun(u0, [-pi pi], 'trig');
     tspan = [0 2*pi*3/A];
+    pref.dt = 7e-6;
 elseif ( strcmpi(pdeobj, 'Burg') == 1 )
     u0 = chebfun('(1-x.^2).*exp(-30.*(x+1/2).^2)', [-1 1], 'trig');
     pref.dt = 1e-2;
     tspan = [0 30];
 elseif ( strcmpi(pdeobj, 'CH') == 1 )
     u0 = chebfun('(sin(4*pi*x)).^5-sin(pi*x)', [-1 1], 'trig');
-    pref.dt = 1e-2;
+    pref.dt = 2e-2;
     tspan = [0 70];
 elseif ( strcmpi(pdeobj, 'NLS') == 1 )
     A = 2; B = 1;
