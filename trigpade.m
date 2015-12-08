@@ -48,7 +48,7 @@ tnm = chebfun(bb_m, 'coeffs', 'trig' );
 
 
 % Construct the full approximation:
-t = tdp./tnp + tdm./tnm;
+t = tdp./tnp + conj(tdp./tnp); %tdm./tnm;
 
 % Discard the imaginary rounding errors:
 if ( norm(imag(t)) > norm(f) * 100 * eps )
