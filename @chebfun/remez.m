@@ -190,7 +190,7 @@ N = m + n;
 
 % Parse name-value option pairs.
 opts.tol = 1e-16*(N^2 + 10); % Relative tolerance for deciding convergence.
-opts.maxIter = 20;           % Maximum number of allowable iterations.
+opts.maxIter = 40;           % Maximum number of allowable iterations.
 opts.displayIter = false;    % Print output after each iteration.
 opts.plotIter = false;       % Plot approximation at each iteration.
 opts.ignoredIntervals = [];
