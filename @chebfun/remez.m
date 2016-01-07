@@ -526,18 +526,40 @@ for i = 2:length(r)
     end
 end
 
-% Of the points we kept, choose n + 2 consecutive ones that include the maximum
-% of the error.
-[norme, index] = max(abs(es));
-d = max(index - Npts + 1, 1);
-if ( Npts <= length(s) )
-    xk = s(d:d+Npts-1);
+
+% Keep only n + 2 points which alternate in sign, but which have largest
+% absolute error
+extraPts = length(s) - Npts;
+norme = max(abs(es));
+if (extraPts > 0)
+    if (mod(extraPts, 2) ~= 0)
+        if (abs(es(1)) < abs(es(length(es))))
+            s = s(2:length(s));
+            es = es(2:length(es));
+        else
+            s = s(1:length(s) - 1);
+            es = es(1:length(es) - 1);
+        end
+    end
+    while (length(s) > Npts)
+        removeIndex = 1;
+        valToRemove = min(abs(es(1)), abs(es(2)));
+        removeBuffer = valToRemove;
+        for k = 2:(length(s) - 1)
+            removeBuffer = min(abs(es(k)), abs(es(k+1)));
+            if (removeBuffer < valToRemove)
+                valToRemove = removeBuffer;
+                removeIndex = k;
+            end
+        end
+        s = [s(1:(removeIndex - 1)); s((removeIndex + 2):length(s))];
+        es = [es(1:(removeIndex - 1)); es((removeIndex + 2):length(es))];
+    end
+    xk = s;
     flag = 1;
 else
     xk = s;
     flag = 0;
-end
-
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
