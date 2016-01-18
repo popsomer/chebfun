@@ -543,8 +543,7 @@ if (extraPts > 0)
     end
     while (length(s) > Npts)
         removeIndex = 1;
-        valToRemove = max(abs(es(1)), abs(es(2)));
-        removeBuffer = valToRemove;
+        valToRemove = max(abs(es(1)), abs(es(2)));     
         for k = 2:(length(s) - 1)
             removeBuffer = max(abs(es(k)), abs(es(k+1)));
             if (removeBuffer < valToRemove)
