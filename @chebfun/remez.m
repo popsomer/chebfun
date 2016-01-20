@@ -119,6 +119,7 @@ while ( (delta/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 0) )
     % Display diagnostic information as requested.
     if ( opts.plotIter )
         doPlotIter(xo, xk, err_handle, dom);
+        pause();
     end
 
     if ( opts.displayIter )
@@ -511,6 +512,8 @@ repeated = diff(r) == 0;
 r(repeated) = [];
 er(repeated) = [];
 
+
+
 % Determine points and values to be kept for the reference set.
 s = r(1);    % Points to be kept.
 es = er(1);  % Values to be kept.
@@ -526,40 +529,69 @@ for i = 2:length(r)
     end
 end
 
-
-% Keep only n + 2 points which alternate in sign, but which have largest
-% absolute error
+% % Keep only n + 2 points which alternate in sign, but which have largest
+% % absolute error
 extraPts = length(s) - Npts;
 norme = max(abs(es));
-if (extraPts > 0)
-    if (mod(extraPts, 2) ~= 0)
-        if (abs(es(1)) < abs(es(length(es))))
-            s = s(2:length(s));
-            es = es(2:length(es));
+s1 = s(es  > 0);
+s2 = s(es <= 0);
+lejaFlag = 1;
+if ( extraPts > 0 )
+    if( length(s1) > lejaFlag*ceil(Npts/2+1) && length(s2) > ceil(Npts/2+1) )
+        nLeja = ceil(Npts/2);
+        disp('entering leja')
+        if (length(s1) > length(s2))
+            [~, initIdx] = max(abs(s1));
+            rLeja = sort(leja(s1, initIdx, nLeja));            
+            rOther = s2;
+            esOther = es(es <= 0);
         else
-            s = s(1:length(s) - 1);
-            es = es(1:length(es) - 1);
+            [~, initIdx] = max(abs(s2));
+            rLeja = sort(leja(s2, initIdx, nLeja));                     
+            rOther = s1;
+            esOther = es(es > 0);
         end
-    end
-    while (length(s) > Npts)
-        removeIndex = 1;
-        valToRemove = max(abs(es(1)), abs(es(2)));     
-        for k = 2:(length(s) - 1)
-            removeBuffer = max(abs(es(k)), abs(es(k+1)));
-            if (removeBuffer < valToRemove)
-                valToRemove = removeBuffer;
-                removeIndex = k;
+
+        xk = mergePoints(rLeja, rOther, esOther, Npts);    
+    else
+        if (mod(extraPts, 2) ~= 0)
+            if (abs(es(1)) < abs(es(length(es))))
+                s = s(2:length(s));
+                es = es(2:length(es));
+            else
+                s = s(1:length(s) - 1);
+                es = es(1:length(es) - 1);
             end
         end
-        s = [s(1:(removeIndex - 1)); s((removeIndex + 2):length(s))];
-        es = [es(1:(removeIndex - 1)); es((removeIndex + 2):length(es))];
+   
+        while (length(s) > Npts)
+            removeIndex = 1;
+            valToRemove = max(abs(es(1)), abs(es(2)));     
+            for k = 2:(length(s) - 1)
+                removeBuffer = max(abs(es(k)), abs(es(k+1)));
+                if (removeBuffer < valToRemove)
+                    valToRemove = removeBuffer;
+                    removeIndex = k;
+                end
+            end
+            s = [s(1:(removeIndex - 1)); s((removeIndex + 2):length(s))];
+            es = [es(1:(removeIndex - 1)); es((removeIndex + 2):length(es))];
+        end
+        xk = s;
+        
     end
-    xk = s;
-    flag = 1;
+    flag = 1;        
 else
     xk = s;
     flag = 0;
 end
+
+% if (extraPts > 0)
+    
+% else
+%     xk = s;
+%     flag = 0;
+% end
 
 end
 
@@ -569,11 +601,11 @@ end
 % Function called when opts.plotIter is set.
 function doPlotIter(xo, xk, err_handle, dom)
 
-xxk = linspace(dom(1), dom(end), 300);
-plot(xo, 0*xo, 'or', 'MarkerSize', 12)   % Old reference.
+xxk = linspace(dom(1), dom(end), 3000);
+plot(xo, 0*xo, 'or', 'MarkerSize', 8)   % Old reference.
 holdState = ishold;
 hold on
-plot(xk, 0*xk, '*k', 'MarkerSize', 12)   % New reference.
+plot(xk, 0*xk, '*k', 'MarkerSize', 6)   % New reference.
 plot(xxk, err_handle(xxk))               % Error function.
 if ( ~holdState )                        % Return to previous hold state.
     hold off
@@ -626,3 +658,64 @@ if ( abs(ignoredIntervals(end) - b) < 100*eps )
 end
 
 end
+
+
+function [xx, pos] = leja(x, startIndex, nPts) 
+% put NPTS from X in a Leja sequence
+% starting from x(startIndex)
+n = length(x);
+p = zeros(n,1);
+pos = zeros(nPts, 1);
+xx = zeros(nPts, 1);
+xx(1) = x(startIndex); 
+pos(1) = startIndex;
+
+for j = 2:nPts
+    % we want to pick the jth point now:
+    for i = 1:n
+        %p(i) = prod(abs(x(i) - xx(1:j-1)));
+        p(i) = sum(log(abs(x(i) - xx(1:j-1)))); % no overflow
+    end  
+    [val,pos(j)] = max(p);
+    xx(j) = x(pos(j));
+end
+
+end
+
+function r = mergePoints(rLeja, rOther, erOther, Npts)
+rLeja   = rLeja(:);
+rOther  = rOther(:);
+erOther = erOther(:);
+
+idx = rOther < rLeja(1);
+rTemp = rOther(idx);
+erTemp = erOther(idx);
+[~, pos] = max(abs(erTemp));
+r = rTemp(pos);
+i = 1;
+while i < length(rLeja)
+    r = [r; rLeja(i)]; 
+    k = i+1;
+    while ( ~any((rOther > rLeja(i)) & (rOther < rLeja(k))) )
+        k = k + 1;
+    end
+    idx = (rOther > rLeja(i)) & (rOther < rLeja(k));    
+    rTemp = rOther(idx);
+    erTemp = erOther(idx);
+    [~, pos] = max(abs(erTemp));
+    r = [r; rTemp(pos)];               
+    i = k;
+end
+r = [r; rLeja(end)];
+idx = rOther > rLeja(end);
+rTemp = rOther(idx);
+erTemp = erOther(idx);
+[~, pos] = max(abs(erTemp));
+r = [r; rTemp(pos)];
+if ( length(r) ~= Npts )
+    warning('You are likely to fail my friend.')
+end
+
+end
+
+
