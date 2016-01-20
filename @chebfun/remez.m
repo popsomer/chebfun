@@ -1,4 +1,4 @@
-function varargout = remez(f, varargin)
+function varargout = remez(varargin)
 %REMEZ   Best polynomial or rational approximation for real valued chebfuns.
 %   P = REMEZ(F, M) computes the best polynomial approximation of degree M to
 %   the real CHEBFUN F in the infinity norm using the Remez algorithm.
@@ -48,40 +48,38 @@ function varargout = remez(f, varargin)
 % Copyright 2015 by The University of Oxford and The Chebfun Developers.
 % See http://www.chebfun.org/ for Chebfun information.
 
+if ( nargin < 2 ) 
+    error('CHEBFUN:CHEBFUN:remez:nargin', ...
+        'Not enough input arguments.');
+else
+    [f, m, n, opts] = parseInput(varargin{:});
+end
+
+if ( isempty(f) ) 
+    varargout = {f};
+    return;
+end
+
+if ( opts.rationalMode )
+    [m, n] = adjustDegreesForSymmetries(f, m, n);
+end
+
 dom = f.domain([1, end]);
 normf = norm(f);
 
-if ( ~isreal(f) )
-    error('CHEBFUN:CHEBFUN:remez:real', ...
-        'REMEZ only supports real valued functions.');
-end
-
-if ( numColumns(f) > 1 )
-    error('CHEBFUN:CHEBFUN:remez:quasi', ...
-        'REMEZ does not currently support quasimatrices.');
-end
-
-if ( issing(f) )
-    error('CHEBFUN:CHEBFUN:remez:singularFunction', ...
-        'REMEZ does not currently support functions with singularities.');
-end
-
-% Parse the inputs.
-[m, n, N, rationalMode, opts] = parseInputs(f, varargin{:});
-
 % With zero denominator degree, the denominator polynomial is trivial.
-if ( n == 0 )
-    qk = 1;
+if ( n == 0 ) 
     q = chebfun(1, dom);
     qmin = q;
 end
 
 % Initial values for some parameters.
 iter = 0;                 % Iteration count.
-delta = max(normf, eps);  % Value for stopping criterion.
+deltaLevelError = max(normf, eps);  % Value for stopping criterion.
 deltamin = inf;           % Minimum error encountered.
 diffx = 1;                % Maximum correction to trial reference.
 
+N = m + n;
 % Compute an initial reference set to start the algorithm.
 xk = getInitialReference(f, m, n, N);
 xo = xk;
@@ -92,7 +90,7 @@ if ( opts.displayIter )
 end
 
 % Run the main algorithm.
-while ( (delta/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 0) )
+while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 0) )
     fk = feval(f, xk);     % Evaluate on the exchange set.
     w = baryWeights(xk);   % Barycentric weights for exchange set.
 
@@ -118,10 +116,10 @@ while ( (delta/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 0) )
 
     % Update max. correction to trial reference and stopping criterion.
     diffx = max(abs(xo - xk));
-    delta = err - abs(h);
+    deltaLevelError = err - abs(h);
 
     % Store approximation with minimum norm.
-    if ( delta < deltamin )
+    if ( deltaLevelError < deltamin )
         pmin = p;
         if ( n > 0 )
             qmin = q;
@@ -129,7 +127,7 @@ while ( (delta/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 0) )
 
         errmin = err;
         xkmin = xk;
-        deltamin = delta;
+        deltamin = deltaLevelError;
     end
 
     % Display diagnostic information as requested.
@@ -138,7 +136,11 @@ while ( (delta/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 0) )
     end
 
     if ( opts.displayIter )
-        doDisplayIter(iter, err, h, delta, normf, diffx);
+        doDisplayIter(iter, err, h, deltaLevelError, normf, diffx);
+    end
+    
+    if ( opts.demoMode )
+        pause
     end
 
     xo = xk;
@@ -149,23 +151,23 @@ end
 p = pmin;
 err = errmin;
 xk = xkmin;
-delta = deltamin;
+deltaLevelError = deltamin;
 
 % Warn the user if we failed to converge.
-if ( delta/normf > opts.tol )
+if ( deltaLevelError/normf > opts.tol )
     warning('CHEBFUN:CHEBFUN:remez:convergence', ...
         ['Remez algorithm did not converge after ', num2str(iter), ...
          ' iterations to the tolerance ', num2str(opts.tol), '.']);
 end
 
 % Form the outputs.
-status.delta = delta/normf;
+status.delta = deltaLevelError/normf;
 status.iter = iter;
 status.diffx = diffx;
 status.xk = xk;
 
 p = simplify(p);
-if ( rationalMode )
+if ( opts.rationalMode )
     q = simplify(qmin);
     varargout = {p, q, @(x) feval(p, x)./feval(q, x), err, status};
 else
@@ -177,41 +179,62 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Input parsing.
 
-function [m, n, N, rationalMode, opts] = parseInputs(f, varargin)
+function [f, m, n, opts] = parseInput(varargin)
 
-% Detect polynomial / rational approximation type and parse degrees.
-if ( ~mod(nargin, 2) ) % Even number of inputs --> polynomial case.
-    m = varargin{1};
-    n = 0;
-    rationalMode = false;
-    varargin = varargin(2:end);
-else                   % Odd number of inputs --> rational case.
-    [m, n] = adjustDegreesForSymmetries(f, varargin{1}, varargin{2});
-    rationalMode = true;
-    varargin = varargin(3:end);
+%% Handle the first two arguments:
+f = varargin{1};
+remezParseFunction(f);
+varargin(1) = [];
+
+m = varargin{1};
+varargin(1) = [];
+
+n = 0;
+opts.rationalMode = false;
+if ( ~isempty(varargin) > 0 )
+    if ( isa(varargin{1}, 'double') )
+        n = varargin{1};
+        varargin(1) = [];
+        opts.rationalMode = true;
+    end
 end
 
-N = m + n;
+if ( isa(m, 'vector') || isa(n, 'vector') || ...
+        m < 0 || n < 0 || m ~= round(m) || n ~= round(n) )
+   error('CHEBFUN:CHEBFUN:remez:degree', ...
+        'Approximant degree must be a non-negative integer.');
+end
+
 
 % Parse name-value option pairs.
+N = m + n;
 opts.tol = 1e-16*(N^2 + 10); % Relative tolerance for deciding convergence.
-opts.maxIter = 20;           % Maximum number of allowable iterations.
+opts.maxIter = 40;           % Maximum number of allowable iterations.
 opts.displayIter = false;    % Print output after each iteration.
 opts.plotIter = false;       % Plot approximation at each iteration.
+opts.demoMode = false;
 
-for k = 1:2:length(varargin)
-    if ( strcmpi('tol', varargin{k}) )
-        opts.tol = varargin{k+1};
-    elseif ( strcmpi('maxiter', varargin{k}) )
-        opts.maxIter = varargin{k+1};
-    elseif ( strcmpi('display', varargin{k}) )
+while ( ~isempty(varargin) )
+    if ( strcmpi('tol', varargin{1} ) )
+        opts.tol = varargin{2};        
+    elseif ( strcmpi('maxiter', varargin{1}) )
+        opts.maxIter = varargin{2};        
+    elseif ( strcmpi('display', varargin{1}) )
+        opts.displayIter = true;        
+    elseif ( strcmpi('demo', varargin{1}) )
+        opts.demoMode = true;
         opts.displayIter = true;
-    elseif ( strcmpi('plotfcns', varargin{k}) )
-        opts.plotIter = true;
+        opts.plotIter = true;        
+    elseif ( strcmpi('plotfcns', varargin{1}) )
+        opts.plotIter = true;        
     else
         error('CHEBFUN:CHEBFUN:remez:badInput', ...
             'Unrecognized sequence of input parameters.')
     end
+    % Remove this pair of arguments:
+    varargin(1) = [];
+    varargin(1) = [];
+    
 end
 
 end
@@ -240,17 +263,17 @@ c(end) = 2*c(end);
 % Check for symmetries and reduce degrees accordingly.
 if ( max(abs(c(end-1:-2:1)))/vscale(f) < eps )   % f is even.
     if ( mod(m, 2) == 1 )
-        m = m - 1;
+        m = max(m - 1, 0);
     end
     if ( mod(n, 2) == 1 )
-        n = n - 1;
+        n = max(n - 1, 0);
     end
 elseif ( max(abs(c(end:-2:1)))/vscale(f) < eps ) % f is odd.
     if ( mod(m, 2) == 0 )
-        m = m - 1;
+        m = max(m - 1, 0);
     end
     if ( mod(n, 2) == 1 )
-        n = n - 1;
+        n = max(n - 1, 0);
     end
 end
 
@@ -280,8 +303,6 @@ end
 if ( flag == 0 )
     xk = chebpts(N + 2, f.domain([1, end]));
 end
-
-xo = xk;
 
 end
 
@@ -399,8 +420,8 @@ for i = 2:length(r)
     end
 end
 
-% Of the points we kept, choose n + 2 consecutive ones that include the maximum
-% of the error.
+% Of the points we kept, choose n + 2 consecutive ones 
+% that include the maximum of the error.
 [norme, index] = max(abs(es));
 d = max(index - Npts + 1, 1);
 if ( Npts <= length(s) )
@@ -419,11 +440,11 @@ end
 % Function called when opts.plotIter is set.
 function doPlotIter(xo, xk, err_handle, dom)
 
-xxk = linspace(dom(1), dom(end), 300);
-plot(xo, 0*xo, 'or', 'MarkerSize', 12)   % Old reference.
+xxk = linspace(dom(1), dom(end), max(3000, 10*length(xk)));
+plot(xo, 0*xo, '.r', 'MarkerSize', 6)   % Old reference.
 holdState = ishold;
 hold on
-plot(xk, 0*xk, '*k', 'MarkerSize', 12)   % New reference.
+plot(xk, 0*xk, 'ok', 'MarkerSize', 3)   % New reference.
 plot(xxk, err_handle(xxk))               % Error function.
 if ( ~holdState )                        % Return to previous hold state.
     hold off
@@ -441,4 +462,28 @@ disp([num2str(iter), '        ', num2str(err, '%5.4e'), '        ', ...
     num2str(abs(h), '%5.4e'), '        ', ...
     num2str(delta/normf, '%5.4e'), '        ', num2str(diffx, '%5.4e')])
 
+end
+
+function status = remezParseFunction(f)
+% Parse a Chebfun to see if Remez
+% can be applied to it
+
+% Add conditions needed on f:
+if ( ~isreal(f) )
+    error('CHEBFUN:CHEBFUN:remez:real', ...
+        'REMEZ only supports real valued functions.');    
+end
+
+if ( numColumns(f) > 1 )
+    error('CHEBFUN:CHEBFUN:remez:quasi', ...
+        'REMEZ does not currently support quasimatrices.');    
+end
+
+if ( issing(f) )
+    error('CHEBFUN:CHEBFUN:remez:singularFunction', ...
+        'REMEZ does not currently support functions with singularities.');
+end
+
+% If all are satisifed, we can go ahead:
+status = 1;
 end

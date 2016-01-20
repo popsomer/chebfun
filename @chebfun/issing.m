@@ -9,6 +9,10 @@ function out = issing(f)
 % Copyright 2015 by The University of Oxford and The Chebfun Developers.
 % See http://www.chebfun.org/ for Chebfun information.
 
-out = any(cellfun(@(f) issing(f), f.funs));
+if ( isempty(f) )
+    out = false;
+else
+    out = any(cellfun(@(f) issing(f), f.funs));
+end
 
 end
