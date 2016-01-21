@@ -89,6 +89,8 @@ if ( opts.displayIter )
     disp('It.     Max(|Error|)       |ErrorRef|      Delta ErrorRef      Delta Ref')
 end
 
+
+
 % Run the main algorithm.
 while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 0) )
     fk = feval(f, xk);     % Evaluate on the exchange set.
@@ -258,17 +260,17 @@ end
 
 % Compute the Chebyshev coefficients.
 c = chebcoeffs(f, length(f));
-c(end) = 2*c(end);
+c(1) = 2*c(1);
 
 % Check for symmetries and reduce degrees accordingly.
-if ( max(abs(c(end-1:-2:1)))/vscale(f) < eps )   % f is even.
+if ( max(abs(c(2:2:end)))/vscale(f) < eps )   % f is even.
     if ( mod(m, 2) == 1 )
         m = max(m - 1, 0);
     end
     if ( mod(n, 2) == 1 )
         n = max(n - 1, 0);
     end
-elseif ( max(abs(c(end:-2:1)))/vscale(f) < eps ) % f is odd.
+elseif ( max(abs(c(1:2:end)))/vscale(f) < eps ) % f is odd.
     if ( mod(m, 2) == 0 )
         m = max(m - 1, 0);
     end
@@ -319,6 +321,7 @@ pk = (fk - h*sigma);                               % Vals. of r*q in reference.
 p = chebfun(@(x) bary(x, pk, xk, w), dom, m + 1);
 
 end
+
 
 function [p, q, h] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom)
 
