@@ -82,7 +82,12 @@ diffx = 1;                % Maximum correction to trial reference.
 N = m + n;
 % Compute an initial reference set to start the algorithm.
 [xk, pmin, qmin] = getInitialReference(f, m, n, N);
-h = norm(feval(f, xk) - feval(pmin,xk)./feval(qmin,xk));
+if ( isempty(qmin) )
+    qmin = chebfun(1, f.domain([1, end]));
+end
+if ( n > 0 )
+%    h = norm(feval(f, xk) - feval(pmin,xk)./feval(qmin,xk));
+end
 xo = xk;
 
 % Print header for text output display if requested.
@@ -95,26 +100,26 @@ end
 % Run the main algorithm.
 while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 0) )
     fk = feval(f, xk);     % Evaluate on the exchange set.
-    w = baryWeights(xk);   % Barycentric weights for exchange set.
-
+    w = baryWeights(xk);   % Barycentric weights for exchange set.    
+        
     % Compute trial function and levelled reference error.
     if ( n == 0 )
         [p, h] = computeTrialFunctionPolynomial(fk, xk, w, m, N, dom);
     else
         [p, q, h] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom);
     end
-
+    
     % Perturb exactly-zero values of the levelled error.
     if ( h == 0 )
         h = 1e-19;
     end
 
     % Update the exchange set using the Remez algorithm with full exchange.
-    [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, N + 2);
+    [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, N + 2, opts);
 
     % If overshoot, recompute with one-point exchange.
     if ( err/normf > 1e5 )
-        [xk, err, err_handle] = exchange(xo, h, 1, f, p, q, N + 2);
+        [xk, err, err_handle] = exchange(xo, h, 1, f, p, q, N + 2, opts);
     end
 
     % Update max. correction to trial reference and stopping criterion.
@@ -136,6 +141,7 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 
     % Display diagnostic information as requested.
     if ( opts.plotIter )
         doPlotIter(xo, xk, err_handle, dom);
+        pause();
     end
 
     if ( opts.displayIter )
@@ -227,6 +233,9 @@ function [xk, p, q] = getInitialReference(f, m, n, N)
 % If doing rational Remez, get initial reference from trial function generated
 % by CF or Chebyshev-Pade.
 flag = 0;
+a = f.domain(1);
+b = f.domain(end);
+
 if ( n > 0 )
     if ( numel(f.funs) == 1 )
         %[p, q] = chebpade(f, m, n);
@@ -251,6 +260,7 @@ if ( flag == 0 )
     q = [];        
 end
 
+
 end
 
 function [p, h] = computeTrialFunctionPolynomial(fk, xk, w, m, N, dom)
@@ -264,16 +274,6 @@ pk = (fk - h*sigma);                               % Vals. of r*q in reference.
 
 % Trial polynomial.
 p = chebfun(@(x) bary(x, pk, xk, w), dom, m + 1);
-
-end
-
-function [p, q, h] = computeQ(fk, xk, w, m, n, dom)
-% Vector of alternating signs.
-N = m + n;
-sigma = ones(N + 2, 1);
-sigma(2:2:end) = -1;
-
-u = @(h) (fk - h*sigma).*w;
 
 end
 
@@ -307,22 +307,33 @@ h = d(pos, pos);          % Levelled reference error.
 pk = (fk - h*sigma).*qk;  % Vals. of r*q in reference.
 
 % Trial numerator and denominator.
-p = chebfun(@(x) bary(x, pk, xk, w), dom, m + 1);
-q = chebfun(@(x) bary(x, qk, xk, w), dom, n + 1);
+[xk_leja, idx] = leja(xk, 1, m+1);
+pk_leja = pk(idx);
+w_leja = baryWeights(xk_leja);
+p = chebfun(@(x) bary(x, pk_leja, xk_leja, w_leja), dom, m + 1);
+
+[xk_leja, idx] = leja(xk, 1, n+1);
+qk_leja = qk(idx);
+w_leja = baryWeights(xk_leja);
+q = chebfun(@(x) bary(x, qk_leja, xk_leja, w_leja), dom, n + 1);
 
 rk = feval(p, xk)./feval(q, xk);
+disp('Inerpolation error: ' )
+[norm(pk - feval(p,xk), inf), norm(qk - feval(q,xk), inf)]
+disp('equioscillation of error: ' )
 (fk - rk)
 
 end
 
-function [xk, norme, err_handle, flag] = exchange(xk, h, method, f, p, q, Npts)
+function [xk, norme, err_handle, flag] = exchange(xk, h, method, f, p, q, Npts, opts)
 %EXCHANGE   Modify an equioscillation reference using the Remez algorithm.
-%   EXCHANGE(XK, H, METHOD, F, P, Q) performs one step of the Remez algorithm
+%   EXCHANGE(XK, H, METHOD, F, P, Q, W) performs one step of the Remez algorithm
 %   for the best rational approximation of the CHEBFUN F of the target function
 %   according to the first method (METHOD = 1), i.e. exchanges only one point,
 %   or the second method (METHOD = 2), i.e. exchanges all the reference points.
 %   XK is a column vector with the reference, H is the levelled error, P is the
-%   numerator, and Q is the denominator of the trial rational function P/Q.
+%   numerator, and Q is the denominator of the trial
+%   rational function P/Q and W is the weight function.
 %
 %   [XK, NORME, E_HANDLE, FLAG] = EXCHANGE(...) returns the modified reference
 %   XK, the supremum norm of the error NORME (included as an output argument,
@@ -365,6 +376,8 @@ repeated = diff(r) == 0;
 r(repeated) = [];
 er(repeated) = [];
 
+
+
 % Determine points and values to be kept for the reference set.
 s = r(1);    % Points to be kept.
 es = er(1);  % Values to be kept.
@@ -387,10 +400,18 @@ d = max(index - Npts + 1, 1);
 if ( Npts <= length(s) )
     xk = s(d:d+Npts-1);
     flag = 1;
+
 else
     xk = s;
     flag = 0;
 end
+
+% if (extraPts > 0)
+    
+% else
+%     xk = s;
+%     flag = 0;
+% end
 
 end
 
@@ -405,6 +426,7 @@ plot(xo, 0*xo, '.r', 'MarkerSize', 6)   % Old reference.
 holdState = ishold;
 hold on
 plot(xk, 0*xk, 'ok', 'MarkerSize', 3)   % New reference.
+
 plot(xxk, err_handle(xxk))               % Error function.
 if ( ~holdState )                        % Return to previous hold state.
     hold off
@@ -507,6 +529,65 @@ while ( ~isempty(varargin) )
     varargin(1) = [];
     varargin(1) = [];
     
+end
+
+end
+
+
+function [xx, pos] = leja(x, startIndex, nPts) 
+% put NPTS from X in a Leja sequence
+% starting from x(startIndex)
+n = length(x);
+p = zeros(n,1);
+pos = zeros(nPts, 1);
+xx = zeros(nPts, 1);
+xx(1) = x(startIndex); 
+pos(1) = startIndex;
+
+for j = 2:nPts
+    % we want to pick the jth point now:
+    for i = 1:n
+        %p(i) = prod(abs(x(i) - xx(1:j-1)));
+        p(i) = sum(log(abs(x(i) - xx(1:j-1)))); % no overflow
+    end  
+    [val,pos(j)] = max(p);
+    xx(j) = x(pos(j));
+end
+
+end
+
+function r = mergePoints(rLeja, rOther, erOther, Npts)
+rLeja   = rLeja(:);
+rOther  = rOther(:);
+erOther = erOther(:);
+
+idx = rOther < rLeja(1);
+rTemp = rOther(idx);
+erTemp = erOther(idx);
+[~, pos] = max(abs(erTemp));
+r = rTemp(pos);
+i = 1;
+while i < length(rLeja)
+    r = [r; rLeja(i)]; 
+    k = i+1;
+    while ( ~any((rOther > rLeja(i)) & (rOther < rLeja(k))) )
+        k = k + 1;
+    end
+    idx = (rOther > rLeja(i)) & (rOther < rLeja(k));    
+    rTemp = rOther(idx);
+    erTemp = erOther(idx);
+    [~, pos] = max(abs(erTemp));
+    r = [r; rTemp(pos)];               
+    i = k;
+end
+r = [r; rLeja(end)];
+idx = rOther > rLeja(end);
+rTemp = rOther(idx);
+erTemp = erOther(idx);
+[~, pos] = max(abs(erTemp));
+r = [r; rTemp(pos)];
+if ( length(r) ~= Npts )
+    warning('You are likely to fail my friend.')
 end
 
 end
