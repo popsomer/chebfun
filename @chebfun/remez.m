@@ -81,7 +81,8 @@ diffx = 1;                % Maximum correction to trial reference.
 
 N = m + n;
 % Compute an initial reference set to start the algorithm.
-xk = getInitialReference(f, m, n, N);
+[xk, pmin, qmin] = getInitialReference(f, m, n, N);
+h = norm(feval(f, xk) - feval(pmin,xk)./feval(qmin,xk));
 xo = xk;
 
 % Print header for text output display if requested.
@@ -178,69 +179,6 @@ end
 
 end
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Input parsing.
-
-function [f, m, n, opts] = parseInput(varargin)
-
-%% Handle the first two arguments:
-f = varargin{1};
-remezParseFunction(f);
-varargin(1) = [];
-
-m = varargin{1};
-varargin(1) = [];
-
-n = 0;
-opts.rationalMode = false;
-if ( ~isempty(varargin) > 0 )
-    if ( isa(varargin{1}, 'double') )
-        n = varargin{1};
-        varargin(1) = [];
-        opts.rationalMode = true;
-    end
-end
-
-if ( isa(m, 'vector') || isa(n, 'vector') || ...
-        m < 0 || n < 0 || m ~= round(m) || n ~= round(n) )
-   error('CHEBFUN:CHEBFUN:remez:degree', ...
-        'Approximant degree must be a non-negative integer.');
-end
-
-
-% Parse name-value option pairs.
-N = m + n;
-opts.tol = 1e-16*(N^2 + 10); % Relative tolerance for deciding convergence.
-opts.maxIter = 40;           % Maximum number of allowable iterations.
-opts.displayIter = false;    % Print output after each iteration.
-opts.plotIter = false;       % Plot approximation at each iteration.
-opts.demoMode = false;
-
-while ( ~isempty(varargin) )
-    if ( strcmpi('tol', varargin{1} ) )
-        opts.tol = varargin{2};        
-    elseif ( strcmpi('maxiter', varargin{1}) )
-        opts.maxIter = varargin{2};        
-    elseif ( strcmpi('display', varargin{1}) )
-        opts.displayIter = true;        
-    elseif ( strcmpi('demo', varargin{1}) )
-        opts.demoMode = true;
-        opts.displayIter = true;
-        opts.plotIter = true;        
-    elseif ( strcmpi('plotfcns', varargin{1}) )
-        opts.plotIter = true;        
-    else
-        error('CHEBFUN:CHEBFUN:remez:badInput', ...
-            'Unrecognized sequence of input parameters.')
-    end
-    % Remove this pair of arguments:
-    varargin(1) = [];
-    varargin(1) = [];
-    
-end
-
-end
-
 function [m, n] = adjustDegreesForSymmetries(f, m, n)
 %ADJUSTDEGREESFORSYMMETRIES   Adjust rational approximation degrees to account
 %   for function symmetries.
@@ -284,7 +222,7 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Functions implementing the core part of the algorithm.
 
-function xk = getInitialReference(f, m, n, N)
+function [xk, p, q] = getInitialReference(f, m, n, N)
 
 % If doing rational Remez, get initial reference from trial function generated
 % by CF or Chebyshev-Pade.
@@ -295,15 +233,22 @@ if ( n > 0 )
         [p, q] = cf(f, m, n);
     else
         %[p, q] = chebpade(f, m, n, 5*N);
-        [p, q] = cf(f, m, n, 5*N);
+        [p, q] = cf(f, m, n, 100*N);
     end
     [xk, err, e, flag] = exchange([], 0, 2, f, p, q, N + 2);
 end
+% REMOVE THIS:
+%flag = 0;
 
 % In the polynomial case or if the above procedure failed to produce a reference
 % with enough equioscillation points, just use the Chebyshev points.
 if ( flag == 0 )
-    xk = chebpts(N + 2, f.domain([1, end]));
+    xk = chebpts(N + 2, f.domain([1, end]), 1);
+    %mid = round(length(xk)/2);
+    %xk = [xk(1:mid)+1; xk(mid+1:end)-1];
+    %xk = sort(xk);
+    p = [];
+    q = [];        
 end
 
 end
@@ -322,6 +267,15 @@ p = chebfun(@(x) bary(x, pk, xk, w), dom, m + 1);
 
 end
 
+function [p, q, h] = computeQ(fk, xk, w, m, n, dom)
+% Vector of alternating signs.
+N = m + n;
+sigma = ones(N + 2, 1);
+sigma(2:2:end) = -1;
+
+u = @(h) (fk - h*sigma).*w;
+
+end
 
 function [p, q, h] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom)
 
@@ -355,6 +309,9 @@ pk = (fk - h*sigma).*qk;  % Vals. of r*q in reference.
 % Trial numerator and denominator.
 p = chebfun(@(x) bary(x, pk, xk, w), dom, m + 1);
 q = chebfun(@(x) bary(x, qk, xk, w), dom, n + 1);
+
+rk = feval(p, xk)./feval(q, xk);
+(fk - rk)
 
 end
 
@@ -489,4 +446,67 @@ end
 
 % If all are satisifed, we can go ahead:
 status = 1;
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Input parsing.
+
+function [f, m, n, opts] = parseInput(varargin)
+
+%% Handle the first two arguments:
+f = varargin{1};
+remezParseFunction(f);
+varargin(1) = [];
+
+m = varargin{1};
+varargin(1) = [];
+
+n = 0;
+opts.rationalMode = false;
+if ( ~isempty(varargin) > 0 )
+    if ( isa(varargin{1}, 'double') )
+        n = varargin{1};
+        varargin(1) = [];
+        opts.rationalMode = true;
+    end
+end
+
+if ( isa(m, 'vector') || isa(n, 'vector') || ...
+        m < 0 || n < 0 || m ~= round(m) || n ~= round(n) )
+   error('CHEBFUN:CHEBFUN:remez:degree', ...
+        'Approximant degree must be a non-negative integer.');
+end
+
+
+% Parse name-value option pairs.
+N = m + n;
+opts.tol = 1e-16*(N^2 + 10); % Relative tolerance for deciding convergence.
+opts.maxIter = 40;           % Maximum number of allowable iterations.
+opts.displayIter = false;    % Print output after each iteration.
+opts.plotIter = false;       % Plot approximation at each iteration.
+opts.demoMode = false;
+
+while ( ~isempty(varargin) )
+    if ( strcmpi('tol', varargin{1} ) )
+        opts.tol = varargin{2};        
+    elseif ( strcmpi('maxiter', varargin{1}) )
+        opts.maxIter = varargin{2};        
+    elseif ( strcmpi('display', varargin{1}) )
+        opts.displayIter = true;        
+    elseif ( strcmpi('demo', varargin{1}) )
+        opts.demoMode = true;
+        opts.displayIter = true;
+        opts.plotIter = true;        
+    elseif ( strcmpi('plotfcns', varargin{1}) )
+        opts.plotIter = true;        
+    else
+        error('CHEBFUN:CHEBFUN:remez:badInput', ...
+            'Unrecognized sequence of input parameters.')
+    end
+    % Remove this pair of arguments:
+    varargin(1) = [];
+    varargin(1) = [];
+    
+end
+
 end
