@@ -315,27 +315,26 @@ end
 
 % Compute the Chebyshev coefficients.
 c = chebcoeffs(f, length(f));
-c(end) = 2*c(end);
+c(1) = 2*c(1);
 
 % Check for symmetries and reduce degrees accordingly.
-if ( max(abs(c(end-1:-2:1)))/vscale(f) < eps )   % f is even.
+if ( max(abs(c(2:2:end)))/vscale(f) < eps )   % f is even.
     if ( mod(m, 2) == 1 )
-        m = m - 1;
+        m = max(m - 1, 0);
     end
     if ( mod(n, 2) == 1 )
-        n = n - 1;
+        n = max(n - 1, 0);
     end
-elseif ( max(abs(c(end:-2:1)))/vscale(f) < eps ) % f is odd.
+elseif ( max(abs(c(1:2:end)))/vscale(f) < eps ) % f is odd.
     if ( mod(m, 2) == 0 )
-        m = m - 1;
+        m = max(m - 1, 0);
     end
     if ( mod(n, 2) == 1 )
-        n = n - 1;
+        n = max(n - 1, 0);
     end
 end
 
 end
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Functions implementing the core part of the algorithm.
 
@@ -353,7 +352,7 @@ if ( n > 0 )
         [p, q] = cf(f, m, n);
     else
         %[p, q] = chebpade(f, m, n, 5*N);
-        [p, q] = cf(f, m, n, 5*N);
+        [p, q] = cf(f, m, n, 100*N);
     end
     [xk, err, e, flag] = exchange([], 0, 2, f, p, q, N + 2, opts);
 end
@@ -455,8 +454,16 @@ h = d(pos, pos);          % Levelled reference error.
 pk = (fk - h*sigma).*qk;  % Vals. of r*q in reference.
 
 % Trial numerator and denominator.
-p = chebfun(@(x) bary(x, pk, xk, w), dom, m + 1);
-q = chebfun(@(x) bary(x, qk, xk, w), dom, n + 1);
+[xk_leja, idx] = leja(xk, 1, m+1);
+pk_leja = pk(idx);
+w_leja = baryWeights(xk_leja);
+p = chebfun(@(x) bary(x, pk_leja, xk_leja, w_leja), dom, m + 1);
+
+[xk_leja, idx] = leja(xk, 1, n+1);
+qk_leja = qk(idx);
+w_leja = baryWeights(xk_leja);
+q = chebfun(@(x) bary(x, qk_leja, xk_leja, w_leja), dom, n + 1);
+
 
 end
 

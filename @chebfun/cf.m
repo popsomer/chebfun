@@ -58,7 +58,11 @@ end
 
 % Use full series expansion of F by default.
 if ( nargin < 4 )
-    M = length(f) - 1;
+    if ( numel(f.funs) == 1 )
+        M = length(f) - 1;
+    else
+        M = 20*(m+n);
+    end
 end
 
 numCols = numColumns(f);
@@ -208,25 +212,28 @@ a(end) = 2*a(end);
 
 % Check even / odd symmetries.
 if ( max(abs(a(end-1:-2:1)))/vscale(f) < eps )    % f is even.
-    if ( ~(mod(m, 2) || mod(n, 2)) )
-        m = m + 1;
-    elseif ( mod(m, 2) && mod(n, 2) )
-        n = n - 1;
-        if ( n == 0 )
-            [p, q, r, s] = cf(f, m, n, M);
-            return;
-        end
+    if ( mod(m, 2) == 1 )
+        m = max(m - 1, 0);
     end
-elseif ( max(abs(a(end:-2:1)))/vscale(f) < eps )  % f is odd.
-    if ( mod(m,2) && ~mod(n,2) )
-        m = m + 1;
-    elseif ( ~mod(m,2) && mod(n,2) )
-        n = n - 1;
-        if (n == 0)
-            [p, q, r, s] = cf(f, m, n, M);
-            return;
-        end
+    
+    if ( mod(n, 2) == 1 )
+        n = max(n - 1, 0);
     end
+end
+
+if ( max(abs(a(end:-2:1)))/vscale(f) < eps )    % f is odd.
+    if ( mod(m, 2) == 0 )
+        m = max(m - 1, 0);
+    end
+    
+    if ( mod(n, 2) == 0 )
+        n = max(n - 1, 0);
+    end
+end
+
+if (n == 0)
+    [p, q, r, s] = cf(f, m, n, M);
+    return;
 end
 
 % Obtain eigenvalues and block structure.
@@ -307,7 +314,7 @@ s = abs(s);
 % Compute numerator polynomial from Chebyshev expansion of 1./q and Rt.  We
 % know the exact ellipse of analyticity for 1./q, so use this knowledge to
 % obtain its Chebyshev coefficients (see line below).
-qRecip = chebfun(@(x) 1./feval(q, x), dom, ceil(log(4/eps/(rho - 1))/log(rho)));
+qRecip = chebfun(@(x) 1./feval(q, x), dom, max(ceil(log(4/eps/(rho - 1))/log(rho)), 1));
 gam = flipud(chebcoeffs(qRecip, length(qRecip)));
 gam = gam.';
 gam = [zeros(1, 2*m + 1 - length(gam)) gam];
