@@ -106,7 +106,7 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 
     if ( n == 0 )
         [p, h] = computeTrialFunctionPolynomial(fk, xk, w, m, N, dom);
     else
-        [p, q, h] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom);
+        [p, q, h, r] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom);
     end
     
     % Perturb exactly-zero values of the levelled error.
@@ -115,6 +115,8 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 
     end
 
     % Update the exchange set using the Remez algorithm with full exchange.
+    q = chebfun(1, dom);
+    p = r;
     [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, N + 2, opts);
 
     % If overshoot, recompute with one-point exchange.
@@ -277,7 +279,7 @@ p = chebfun(@(x) bary(x, pk, xk, w), dom, m + 1);
 
 end
 
-function [p, q, h] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom)
+function [p, q, h, r] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom)
 
 % Vector of alternating signs.
 sigma = ones(N + 2, 1);
@@ -317,11 +319,19 @@ qk_leja = qk(idx);
 w_leja = baryWeights(xk_leja);
 q = chebfun(@(x) bary(x, qk_leja, xk_leja, w_leja), dom, n + 1);
 
-rk = feval(p, xk)./feval(q, xk);
-disp('Inerpolation error: ' )
-[norm(pk - feval(p,xk), inf), norm(qk - feval(q,xk), inf)]
-disp('equioscillation of error: ' )
-(fk - rk)
+%rk = feval(p, xk)./feval(q, xk);
+%disp('Inerpolation error: ' )
+%[norm(pk - feval(p,xk), inf), norm(qk - feval(q,xk), inf)]
+%disp('equioscillation of error: ' )
+%(fk - rk)
+
+%L = lowner(fk, xk, n, length(xk)%);
+%w = null(L);
+A = berrut(xk, fk, m, n);
+v = null(A);
+fvals = fk - h*sigma;
+fh = @(t) bary(t, fvals(n+1:end), xk(n+1:end), v)
+r = chebfun(fh, dom, 'splitting', 'on');
 
 end
 
@@ -588,6 +598,31 @@ erTemp = erOther(idx);
 r = [r; rTemp(pos)];
 if ( length(r) ~= Npts )
     warning('You are likely to fail my friend.')
+end
+
+end
+
+function A = berrut(x, f, m, n)
+x = x(:); x = x.';
+f = f(:); f = f.';
+A = zeros(m+n, m+n+1);
+for i = 1:m
+    A(i, :) = x.^(i-1);
+end
+
+for i = 1:n
+    A(m+i,:) = f.*x.^(i-1);
+end
+end
+
+function L = lowner(y, x, r, N)
+
+L = zeros(r, N-r);
+
+for i = 1:r
+    for j = r+1:N
+        L(i,j-r) = (y(i) - y(j))/(x(i)-x(j));
+    end
 end
 
 end
