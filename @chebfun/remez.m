@@ -119,7 +119,10 @@ while ( (delta/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 0) )
     % Display diagnostic information as requested.
     if ( opts.plotIter )
         doPlotIter(xo, xk, err_handle, dom);
-        pause();
+    end
+    
+    if ( opts.demoMode )
+        pause()
     end
 
     if ( opts.displayIter )
@@ -194,6 +197,7 @@ opts.tol = 1e-16*(N^2 + 10); % Relative tolerance for deciding convergence.
 opts.maxIter = 40;           % Maximum number of allowable iterations.
 opts.displayIter = false;    % Print output after each iteration.
 opts.plotIter = false;       % Plot approximation at each iteration.
+opts.demoMode = false;
 opts.ignoredIntervals = [];
 opts.initialGuess = [];
 
@@ -206,6 +210,10 @@ for k = 1:2:length(varargin)
         opts.displayIter = true;
     elseif ( strcmpi('plotfcns', varargin{k}) )
         opts.plotIter = true;
+    elseif ( strcmpi('demo', varargin{k} ) )
+        opts.demoMode = true;
+        opts.plotIter = true;
+        opts.displayIter = true;
     elseif ( strcmpi('guess', varargin{k}) )
         opts.initialGuess = varargin{k+1};
     elseif ( strcmpi('ignore', varargin{k}) )
@@ -539,7 +547,7 @@ lejaFlag = 1;
 if ( extraPts > 0 )
     if( length(s1) > lejaFlag*ceil(Npts/2+1) && length(s2) > ceil(Npts/2+1) )
         nLeja = ceil(Npts/2);
-        disp('entering leja')
+        %disp('entering leja')
         if (length(s1) > length(s2))
             [~, initIdx] = max(abs(s1));
             rLeja = sort(leja(s1, initIdx, nLeja));            
@@ -601,11 +609,11 @@ end
 % Function called when opts.plotIter is set.
 function doPlotIter(xo, xk, err_handle, dom)
 
-xxk = linspace(dom(1), dom(end), 3000);
-plot(xo, 0*xo, 'or', 'MarkerSize', 8)   % Old reference.
+xxk = linspace(dom(1), dom(end), max(3000, 20*length(xk)));
+plot(xo, 0*xo, 'or', 'MarkerSize', 4)   % Old reference.
 holdState = ishold;
 hold on
-plot(xk, 0*xk, '*k', 'MarkerSize', 6)   % New reference.
+plot(xk, 0*xk, '.k', 'MarkerSize', 6)   % New reference.
 plot(xxk, err_handle(xxk))               % Error function.
 if ( ~holdState )                        % Return to previous hold state.
     hold off
