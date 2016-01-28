@@ -105,8 +105,11 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 
     % Compute trial function and levelled reference error.
     if ( n == 0 )
         [p, h] = computeTrialFunctionPolynomial(fk, xk, w, m, N, dom);
+        opts.rh = [];
     else
-        [p, q, h, r] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom);
+        [p, q, h, rh] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom);
+        opts.rh = rh;
+        opts.f = f;
     end
     
     % Perturb exactly-zero values of the levelled error.
@@ -114,9 +117,7 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 
         h = 1e-19;
     end
 
-    % Update the exchange set using the Remez algorithm with full exchange.
-    q = chebfun(1, dom);
-    p = r;
+    % Update the exchange set using the Remez algorithm with full exchange.   
     [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, N + 2, opts);
 
     % If overshoot, recompute with one-point exchange.
@@ -246,7 +247,9 @@ if ( n > 0 )
         %[p, q] = chebpade(f, m, n, 5*N);
         [p, q] = cf(f, m, n, 100*N);
     end
-    [xk, err, e, flag] = exchange([], 0, 2, f, p, q, N + 2);
+    opts = struct;
+    opts.rh = [];
+    [xk, err, e, flag] = exchange([], 0, 2, f, p, q, N + 2, opts);
 end
 % REMOVE THIS:
 %flag = 0;
@@ -279,7 +282,7 @@ p = chebfun(@(x) bary(x, pk, xk, w), dom, m + 1);
 
 end
 
-function [p, q, h, r] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom)
+function [p, q, h, rh] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom)
 
 % Vector of alternating signs.
 sigma = ones(N + 2, 1);
@@ -319,19 +322,14 @@ qk_leja = qk(idx);
 w_leja = baryWeights(xk_leja);
 q = chebfun(@(x) bary(x, qk_leja, xk_leja, w_leja), dom, n + 1);
 
-%rk = feval(p, xk)./feval(q, xk);
-%disp('Inerpolation error: ' )
-%[norm(pk - feval(p,xk), inf), norm(qk - feval(q,xk), inf)]
-%disp('equioscillation of error: ' )
-%(fk - rk)
-
-%L = lowner(fk, xk, n, length(xk)%);
-%w = null(L);
-A = berrut(xk, fk, m, n);
-v = null(A);
+nn = round(length(xk)/2);
 fvals = fk - h*sigma;
-fh = @(t) bary(t, fvals(n+1:end), xk(n+1:end), v)
-r = chebfun(fh, dom, 'splitting', 'on');
+xx = xk; xx(nn) = [];
+fx = fvals; fx(nn) = [];
+A = berrut(xx, fx, m, n);
+v = null(A);
+rh = @(t) bary(t, fx, xx, v);
+%r = chebfun(fh, dom, 'splitting', 'on');
 
 end
 
@@ -358,12 +356,27 @@ function [xk, norme, err_handle, flag] = exchange(xk, h, method, f, p, q, Npts, 
 %   initial trial function rather than an initial trial reference.
 
 % Compute extrema of the error.
-e_num = (q.^2).*diff(f) - q.*diff(p) + p.*diff(q);
-rts = roots(e_num, 'nobreaks');
-rr = [f.domain(1) ; rts; f.domain(end)];
+if ( ~isempty(opts.rh) )
+    % Rational case:
+    r = opts.rh;    
+    err_handle = @(x) feval(f, x) - r(x);    
+    rts = [];
+    %doms = unique(sort([f.domain(:); xk]));
+    doms = unique([f.domain(1); xk; f.domain(end)]);
+    %doms = sort([doms; 0]);
+    for k = 1:length(doms)-1
+        ek = chebfun(@(x) err_handle(x), [doms(k), doms(k+1)], 'splitting', 'on' );
+        %plot(ek)
+        rts = [rts; roots(diff(ek), 'nobreaks')];  %#ok<AGROW>
+    end    
+else
+    e_num = (q.^2).*diff(f) - q.*diff(p) + p.*diff(q);
+    rts = roots(e_num, 'nobreaks');
+    % Function handle output for evaluating the error.
+    err_handle = @(x) feval(f, x) - feval(p, x)./feval(q, x);
+end
 
-% Function handle output for evaluating the error.
-err_handle = @(x) feval(f, x) - feval(p, x)./feval(q, x);
+rr = [f.domain(1) ; rts; f.domain(end)];
 
 % Select exchange method.
 if ( method == 1 )                           % One-point exchange.
@@ -520,25 +533,35 @@ opts.demoMode = false;
 
 while ( ~isempty(varargin) )
     if ( strcmpi('tol', varargin{1} ) )
-        opts.tol = varargin{2};        
+        opts.tol = varargin{2};
+        varargin(1) =[];
+        varargin(1) =[];        
     elseif ( strcmpi('maxiter', varargin{1}) )
         opts.maxIter = varargin{2};        
+        varargin(1) =[];
+        varargin(1) =[];        
     elseif ( strcmpi('display', varargin{1}) )
+        varargin(1) = [];
+        if ( strcmpi('iter', varargin{1}) )
+            varargin(1) = [];
+        end
         opts.displayIter = true;        
-    elseif ( strcmpi('demo', varargin{1}) )
+    elseif ( strcmpi('demo', varargin{1}) )        
+        varargin(1) = [];
         opts.demoMode = true;
         opts.displayIter = true;
         opts.plotIter = true;        
     elseif ( strcmpi('plotfcns', varargin{1}) )
+        varargin(1) = [];
+        if ( strcmpi('error', varargin{1}) )
+            varargin(1) = [];
+        end            
         opts.plotIter = true;        
     else
         error('CHEBFUN:CHEBFUN:remez:badInput', ...
             'Unrecognized sequence of input parameters.')
     end
-    % Remove this pair of arguments:
-    varargin(1) = [];
-    varargin(1) = [];
-    
+        
 end
 
 end
