@@ -258,6 +258,10 @@ end
 % with enough equioscillation points, just use the Chebyshev points.
 if ( flag == 0 )
     xk = chebpts(N + 2, f.domain([1, end]), 1);
+    xk = [xk(round(length(xk)/2)+1:length(xk)) - 1; xk(1:round(length(xk)/2))+1];
+    xk(round(length(xk)/2))=-1;
+    xk = sort(xk);
+    %disp('here!');
     %mid = round(length(xk)/2);
     %xk = [xk(1:mid)+1; xk(mid+1:end)-1];
     %xk = sort(xk);
@@ -309,6 +313,7 @@ end
 
 qk = qk_all(:,pos);       % Keep qk with unchanged sign.
 h = d(pos, pos);          % Levelled reference error.
+disp(h);
 pk = (fk - h*sigma).*qk;  % Vals. of r*q in reference.
 
 % Trial numerator and denominator.
@@ -366,7 +371,8 @@ if ( ~isempty(opts.rh) )
     %doms = sort([doms; 0]);
     for k = 1:length(doms)-1
         ek = chebfun(@(x) err_handle(x), [doms(k), doms(k+1)], 'splitting', 'on' );
-        %plot(ek)
+        %plot(ek);
+        %pause(10);
         rts = [rts; roots(diff(ek), 'nobreaks')];  %#ok<AGROW>
     end    
 else
