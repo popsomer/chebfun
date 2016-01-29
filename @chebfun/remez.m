@@ -107,9 +107,10 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (diffx > 
         [p, h] = computeTrialFunctionPolynomial(fk, xk, w, m, N, dom);
         opts.rh = [];
     else
-        [p, q, h, rh] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom);
+        [p, q, h, rh, pqh] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom);
         opts.rh = rh;
-        opts.f = f;
+        opts.pqh = pqh;
+        opts.f = f;        
     end
     
     % Perturb exactly-zero values of the levelled error.
@@ -286,7 +287,7 @@ p = chebfun(@(x) bary(x, pk, xk, w), dom, m + 1);
 
 end
 
-function [p, q, h, rh] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom)
+function [p, q, h, rh, pqh] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom)
 
 % Vector of alternating signs.
 sigma = ones(N + 2, 1);
@@ -306,9 +307,20 @@ ZR = C(:,m+2:N+2).'*diag(sigma)*C(:,1:n+1);
 qk_all = C(:,1:n+1)*v;
 pos =  find(abs(sum(sign(qk_all))) == N + 2);  % Sign changes of each qk.
 
-if ( isempty(pos) || (length(pos) > 1) )
-    error('CHEBFUN:CHEBFUN:remez:badGuess', ...
-        'Trial interpolant too far from optimal');
+if ( (length(pos) > 1) )
+    error('CHEBFUN:CHEBFUN:remez:eigensolver', ...
+        'More than one vector doesn''t change sign');
+end
+
+if ( isempty(pos) )    
+    [~, pos] = max(abs(sum(sign(qk_all))));
+    plusSign = sum(qk_all(:, pos) > 0);
+    minusSign = sum(qk_all(:, pos) < 0);
+    if ( plusSign > minusSign )
+        qk_all(:, pos) = abs(qk_all(:, pos));
+    else
+        qk_all(:, pos) = -abs(qk_all(:, pos));
+    end
 end
 
 qk = qk_all(:,pos);       % Keep qk with unchanged sign.
@@ -334,6 +346,7 @@ fx = fvals; fx(nn) = [];
 A = berrut(xx, fx, m, n);
 v = null(A);
 rh = @(t) bary(t, fx, xx, v);
+pqh = @(x) p(x)./q(x);
 %r = chebfun(fh, dom, 'splitting', 'on');
 
 end
@@ -369,12 +382,25 @@ if ( ~isempty(opts.rh) )
     %doms = unique(sort([f.domain(:); xk]));
     doms = unique([f.domain(1); xk; f.domain(end)]);
     %doms = sort([doms; 0]);
+    warning off
     for k = 1:length(doms)-1
-        ek = chebfun(@(x) err_handle(x), [doms(k), doms(k+1)], 'splitting', 'on' );
-        %plot(ek);
-        %pause(10);
+        ek = chebfun(@(x) err_handle(x), [doms(k), doms(k+1)], 30 ); 
+        k
+        ek = simplify(ek);
+        
+%         if (length(ek) > 4000 )
+%             %plot(ek);
+%             %disp( 'reconstructing' )
+%             ek = chebfun(@(x) err_handle(x), [doms(k), doms(k+1)], 'eps', 1e-9 ); 
+%             %length(ek)    
+%             %plot(ek)
+%             %drawnow
+%             %pause()
+%         end        
+        
         rts = [rts; roots(diff(ek), 'nobreaks')];  %#ok<AGROW>
     end    
+    warning on
 else
     e_num = (q.^2).*diff(f) - q.*diff(p) + p.*diff(q);
     rts = roots(e_num, 'nobreaks');
