@@ -61,7 +61,7 @@ if ( nargin < 4 )
     if ( numel(f.funs) == 1 )
         M = length(f) - 1;
     else
-        M = 20*(m+n);
+        M = 100*(m+n);
     end
 end
 
