@@ -69,7 +69,7 @@ normf = norm(f);
 
 % With zero denominator degree, the denominator polynomial is trivial.
 if ( n <= 0 ) 
-    error('CHEBFUN:CHEBFUN:ratRemez:', ...
+    error('CHEBFUN:CHEBFUN:ratRemez:ratOnly', ...
         'Use remez for polynomial case' );
 end
 
@@ -99,19 +99,14 @@ end
 % Run the main algorithm.
 while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaReference > 0) )
 
-    [p, q, rh, pqh, h] = computeTrialFunctionRational(f, xk, m, n);
-        opts.rh = rh;
-        opts.pqh = pqh;
-        opts.f = f;        
-    end
-    
+    [p, q, rh, pqh, h] = computeTrialFunctionRational(f, xk, m, n);      
     % Perturb exactly-zero values of the levelled error.
     if ( h == 0 )
         h = 1e-19;
     end
 
     % Update the exchange set using the Remez algorithm with full exchange.   
-    [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, N + 2, opts);
+    [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, r, error_handle, N + 2, opts);
 
     % Update max. correction to trial reference and stopping criterion.
     deltaReference = max(abs(xo - xk));
@@ -194,10 +189,8 @@ else
     %[p, q] = chebpade(f, m, n, 5*N);
     [p, q] = cf(f, m, n, 100*N);
 end
-opts = struct;
-opts.rh = [];
-
-[xk, err, e, flag] = exchange([], 0, 2, f, p, q, N + 2, opts);
+pqh = @(x) p(x)./q(x);
+[xk, err, e, flag] = exchange([], 0, 2, f, p, q, pqh, N + 2);
 
 % If the above procedure failed to produce a reference
 % with enough equioscillation points, just use the Chebyshev points.
@@ -215,7 +208,7 @@ end
 
 end
 
-function [p, q, rh, pqh, h] = computeTrialFunctionRational(fk, xk, w, m, n, N, dom)
+function [p, q, rh, pqh, h] = computeTrialFunctionRational(f, xk, m, n)
 
 % Vector of alternating signs.
 sigma = ones(N + 2, 1);
@@ -279,7 +272,7 @@ pqh = @(x) p(x)./q(x);
 
 end
 
-function [xk, norme, err_handle, flag] = exchange(xk, h, method, f, p, q, r, error_handle, Npts, opts)
+function [xk, norme, err_handle, flag] = exchange(xk, h, method, f, p, q, rh, error_handle, Npts, opts)
 %EXCHANGE   Modify an equioscillation reference using the Remez algorithm.
 %   EXCHANGE(XK, H, METHOD, F, P, Q, W) performs one step of the Remez algorithm
 %   for the best rational approximation of the CHEBFUN F of the target function
@@ -302,20 +295,19 @@ function [xk, norme, err_handle, flag] = exchange(xk, h, method, f, p, q, r, err
 %   initial trial function rather than an initial trial reference.
 
 % Compute extrema of the error.
-if ( ~isempty(opts.rh) )
-    % Rational case:
-    r = opts.rh;    
-    err_handle = @(x) feval(f, x) - r(x);    
-    rts = [];
-    %doms = unique(sort([f.domain(:); xk]));
-    doms = unique([f.domain(1); xk; f.domain(end)]);
-    %doms = sort([doms; 0]);
-    warning off
-    for k = 1:length(doms)-1
-        ek = chebfun(@(x) err_handle(x), [doms(k), doms(k+1)], 30 ); 
-        k
-        ek = simplify(ek);
-        
+% Rational case:
+
+err_handle = @(x) feval(f, x) - rh(x);    
+rts = [];
+%doms = unique(sort([f.domain(:); xk]));
+doms = unique([f.domain(1); xk; f.domain(end)]);
+%doms = sort([doms; 0]);
+warning off
+for k = 1:length(doms)-1
+    ek = chebfun(@(x) err_handle(x), [doms(k), doms(k+1)], 30 ); 
+    k
+    ek = simplify(ek);
+
 %         if (length(ek) > 4000 )
 %             %plot(ek);
 %             %disp( 'reconstructing' )
@@ -325,16 +317,11 @@ if ( ~isempty(opts.rh) )
 %             %drawnow
 %             %pause()
 %         end        
-        
-        rts = [rts; roots(diff(ek), 'nobreaks')];  %#ok<AGROW>
-    end    
-    warning on
-else
-    e_num = (q.^2).*diff(f) - q.*diff(p) + p.*diff(q);
-    rts = roots(e_num, 'nobreaks');
-    % Function handle output for evaluating the error.
-    err_handle = @(x) feval(f, x) - feval(p, x)./feval(q, x);
-end
+
+    rts = [rts; roots(diff(ek), 'nobreaks')];  %#ok<AGROW>
+end    
+warning on
+
 
 rr = [f.domain(1) ; rts; f.domain(end)];
 
