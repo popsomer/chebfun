@@ -99,14 +99,27 @@ end
 % Run the main algorithm.
 while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaReference > 0) )
 
-    [p, q, rh, pqh, h] = computeTrialFunctionRational(f, xk, m, n);      
+    [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xk, m, n);      
+
+    % If interpolation has failed:
+    xkTrial = xk;
+    while ( ~interpSuccess )
+        xkTrial = xkTrial + (xkTrial-xo)/2;
+        [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xkTrial, m, n);      
+        disp( 'interpolation not successful' )
+        if ( norm(xkTrial - xo, inf) < eps )
+            xkTrial = xo + 1e-4*rand(size(xo));
+        end
+        
+    end
+
     % Perturb exactly-zero values of the levelled error.
     if ( h == 0 )
         h = 1e-19;
     end
 
     % Update the exchange set using the Remez algorithm with full exchange.   
-    [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, r, error_handle, N + 2, opts);
+    [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, rh, N + 2, opts);
 
     % Update max. correction to trial reference and stopping criterion.
     deltaReference = max(abs(xo - xk));
@@ -139,7 +152,7 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaRef
     end
 
     xo = xk;
-    iter = iter + 1;
+    iter = iter + 1
 end
 
 % Take best results of all the iterations we ran.
@@ -170,7 +183,6 @@ else
 end
 
 end
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Functions implementing the core part of the algorithm.
 
@@ -189,7 +201,7 @@ else
     %[p, q] = chebpade(f, m, n, 5*N);
     [p, q] = cf(f, m, n, 100*N);
 end
-pqh = @(x) p(x)./q(x);
+pqh = @(x) feval(p, x)./feval(q, x);
 [xk, err, e, flag] = exchange([], 0, 2, f, p, q, pqh, N + 2);
 
 % If the above procedure failed to produce a reference
@@ -198,182 +210,7 @@ if ( flag == 0 )
     xk = chebpts(N + 2, f.domain([1, end]), 1);
     xk = [xk(round(length(xk)/2)+1:length(xk)) - 1; xk(1:round(length(xk)/2))+1];
     xk(round(length(xk)/2))=-1;
-    xk = sort(xk);
-    %disp('here!');
-    %mid = round(length(xk)/2);
-    %xk = [xk(1:mid)+1; xk(mid+1:end)-1];
-    %xk = sort(xk);
-end
-
-
-end
-
-function [p, q, rh, pqh, h] = computeTrialFunctionRational(f, xk, m, n)
-
-% Vector of alternating signs.
-sigma = ones(N + 2, 1);
-sigma(2:2:end) = -1;
-
-% Orthogonal matrix with respect to <,>_{xk}.
-[C, ignored] = qr(fliplr(vander(xk)));
-
-% Left and right rational interpolation matrices.
-ZL = C(:,m+2:N+2).'*diag(fk)*C(:,1:n+1);
-ZR = C(:,m+2:N+2).'*diag(sigma)*C(:,1:n+1);
-
-% Solve generalized eigenvalue problem.
-[v, d] = eig(ZL, ZR);
-
-% Compute all possible qk and and look for ones with unchanged sign.
-qk_all = C(:,1:n+1)*v;
-pos =  find(abs(sum(sign(qk_all))) == N + 2);  % Sign changes of each qk.
-
-if ( (length(pos) > 1) )
-    error('CHEBFUN:CHEBFUN:remez:eigensolver', ...
-        'More than one vector doesn''t change sign');
-end
-
-if ( isempty(pos) )    
-    [~, pos] = max(abs(sum(sign(qk_all))));
-    plusSign = sum(qk_all(:, pos) > 0);
-    minusSign = sum(qk_all(:, pos) < 0);
-    if ( plusSign > minusSign )
-        qk_all(:, pos) = abs(qk_all(:, pos));
-    else
-        qk_all(:, pos) = -abs(qk_all(:, pos));
-    end
-end
-
-qk = qk_all(:,pos);       % Keep qk with unchanged sign.
-h = d(pos, pos);          % Levelled reference error.
-disp(h);
-pk = (fk - h*sigma).*qk;  % Vals. of r*q in reference.
-
-% Trial numerator and denominator.
-[xk_leja, idx] = leja(xk, 1, m+1);
-pk_leja = pk(idx);
-w_leja = baryWeights(xk_leja);
-p = chebfun(@(x) bary(x, pk_leja, xk_leja, w_leja), dom, m + 1);
-
-[xk_leja, idx] = leja(xk, 1, n+1);
-qk_leja = qk(idx);
-w_leja = baryWeights(xk_leja);
-q = chebfun(@(x) bary(x, qk_leja, xk_leja, w_leja), dom, n + 1);
-
-nn = round(length(xk)/2);
-fvals = fk - h*sigma;
-xx = xk; xx(nn) = [];
-fx = fvals; fx(nn) = [];
-A = berrut(xx, fx, m, n);
-v = null(A);
-rh = @(t) bary(t, fx, xx, v);
-pqh = @(x) p(x)./q(x);
-%r = chebfun(fh, dom, 'splitting', 'on');
-
-end
-
-function [xk, norme, err_handle, flag] = exchange(xk, h, method, f, p, q, rh, error_handle, Npts, opts)
-%EXCHANGE   Modify an equioscillation reference using the Remez algorithm.
-%   EXCHANGE(XK, H, METHOD, F, P, Q, W) performs one step of the Remez algorithm
-%   for the best rational approximation of the CHEBFUN F of the target function
-%   according to the first method (METHOD = 1), i.e. exchanges only one point,
-%   or the second method (METHOD = 2), i.e. exchanges all the reference points.
-%   XK is a column vector with the reference, H is the levelled error, P is the
-%   numerator, and Q is the denominator of the trial
-%   rational function P/Q and W is the weight function.
-%
-%   [XK, NORME, E_HANDLE, FLAG] = EXCHANGE(...) returns the modified reference
-%   XK, the supremum norm of the error NORME (included as an output argument,
-%   since it is readily computed in EXCHANGE and is used later in REMEZ), a
-%   function handle E_HANDLE for the error, and a FLAG indicating whether there
-%   were at least N+2 alternating extrema of the error to form the next
-%   reference (FLAG = 1) or not (FLAG = 0).
-%
-%   [XK, ...] = EXCHANGE([], 0, METHOD, F, P, Q, N + 2) returns a grid of N + 2
-%   points XK where the error F - P/Q alternates in sign (but not necessarily
-%   equioscillates). This feature of EXCHANGE is useful to start REMEZ from an
-%   initial trial function rather than an initial trial reference.
-
-% Compute extrema of the error.
-% Rational case:
-
-err_handle = @(x) feval(f, x) - rh(x);    
-rts = [];
-%doms = unique(sort([f.domain(:); xk]));
-doms = unique([f.domain(1); xk; f.domain(end)]);
-%doms = sort([doms; 0]);
-warning off
-for k = 1:length(doms)-1
-    ek = chebfun(@(x) err_handle(x), [doms(k), doms(k+1)], 30 ); 
-    k
-    ek = simplify(ek);
-
-%         if (length(ek) > 4000 )
-%             %plot(ek);
-%             %disp( 'reconstructing' )
-%             ek = chebfun(@(x) err_handle(x), [doms(k), doms(k+1)], 'eps', 1e-9 ); 
-%             %length(ek)    
-%             %plot(ek)
-%             %drawnow
-%             %pause()
-%         end        
-
-    rts = [rts; roots(diff(ek), 'nobreaks')];  %#ok<AGROW>
-end    
-warning on
-
-
-rr = [f.domain(1) ; rts; f.domain(end)];
-
-% Select exchange method.
-if ( method == 1 )                           % One-point exchange.
-    [ignored, pos] = max(abs(feval(err_handle, rr)));
-    pos = pos(1);
-else                                           % Full exchange.
-    pos = find(abs(err_handle(rr)) >= abs(h)); % Values above levelled error
-end
-
-% Add extrema nearest to those which are candidates for exchange to the
-% existing exchange set.
-[r, m] = sort([rr(pos) ; xk]);
-v = ones(Npts, 1);
-v(2:2:end) = -1;
-er = [feval(err_handle, rr(pos)) ; v*h];
-er = er(m);
-
-% Delete repeated points.
-repeated = diff(r) == 0;
-r(repeated) = [];
-er(repeated) = [];
-
-
-
-% Determine points and values to be kept for the reference set.
-s = r(1);    % Points to be kept.
-es = er(1);  % Values to be kept.
-for i = 2:length(r)
-    if ( (sign(er(i)) == sign(es(end))) && (abs(er(i)) > abs(es(end))) )
-        % Given adjacent points with the same sign, keep one with largest value.
-        s(end) = r(i);
-        es(end) = er(i);
-    elseif ( sign(er(i)) ~= sign(es(end)) )
-        % Keep points which alternate in sign.
-        s = [s ; r(i)];    %#ok<AGROW>
-        es = [es ; er(i)]; %#ok<AGROW>
-    end
-end
-
-% Of the points we kept, choose n + 2 consecutive ones 
-% that include the maximum of the error.
-[norme, index] = max(abs(es));
-d = max(index - Npts + 1, 1);
-if ( Npts <= length(s) )
-    xk = s(d:d+Npts-1);
-    flag = 1;
-
-else
-    xk = s;
-    flag = 0;
+    xk = sort(xk);    
 end
 
 end
@@ -407,6 +244,7 @@ disp([num2str(iter), '        ', num2str(err, '%5.4e'), '        ', ...
     num2str(abs(h), '%5.4e'), '        ', ...
     num2str(delta/normf, '%5.4e'), '        ', num2str(deltaReference, '%5.4e')])
 end
+
 
 function status = remezParseFunction(f)
 % Parse a Chebfun to see if Remez
@@ -547,85 +385,85 @@ end
 end
 
 
-function [xx, pos] = leja(x, startIndex, nPts) 
-% put NPTS from X in a Leja sequence
-% starting from x(startIndex)
-n = length(x);
-p = zeros(n,1);
-pos = zeros(nPts, 1);
-xx = zeros(nPts, 1);
-xx(1) = x(startIndex); 
-pos(1) = startIndex;
+function [xk, norme, err_handle, flag] = exchange(xk, h, method, f, p, q, rh, Npts, opts)
+%EXCHANGE   Modify an equioscillation reference using the Remez algorithm.
+%   EXCHANGE(XK, H, METHOD, F, P, Q, W) performs one step of the Remez algorithm
+%   for the best rational approximation of the CHEBFUN F of the target function
+%   according to the first method (METHOD = 1), i.e. exchanges only one point,
+%   or the second method (METHOD = 2), i.e. exchanges all the reference points.
+%   XK is a column vector with the reference, H is the levelled error, P is the
+%   numerator, and Q is the denominator of the trial
+%   rational function P/Q and W is the weight function.
+%
+%   [XK, NORME, E_HANDLE, FLAG] = EXCHANGE(...) returns the modified reference
+%   XK, the supremum norm of the error NORME (included as an output argument,
+%   since it is readily computed in EXCHANGE and is used later in REMEZ), a
+%   function handle E_HANDLE for the error, and a FLAG indicating whether there
+%   were at least N+2 alternating extrema of the error to form the next
+%   reference (FLAG = 1) or not (FLAG = 0).
+%
+%   [XK, ...] = EXCHANGE([], 0, METHOD, F, P, Q, N + 2) returns a grid of N + 2
+%   points XK where the error F - P/Q alternates in sign (but not necessarily
+%   equioscillates). This feature of EXCHANGE is useful to start REMEZ from an
+%   initial trial function rather than an initial trial reference.
 
-for j = 2:nPts
-    % we want to pick the jth point now:
-    for i = 1:n
-        %p(i) = prod(abs(x(i) - xx(1:j-1)));
-        p(i) = sum(log(abs(x(i) - xx(1:j-1)))); % no overflow
-    end  
-    [val,pos(j)] = max(p);
-    xx(j) = x(pos(j));
+% Compute extrema of the error.
+% Rational case:
+
+rr = findExtrema(f, p, q, rh, h, xk);
+err_handle = @(x) feval(f, x) - rh(x);
+
+% Select exchange method.
+if ( method == 1 )                           % One-point exchange.
+    [ignored, pos] = max(abs(feval(err_handle, rr)));
+    pos = pos(1);
+else                                           % Full exchange.
+    pos = find(abs(err_handle(rr)) >= abs(h)); % Values above levelled error
 end
 
-end
+% Add extrema nearest to those which are candidates for exchange to the
+% existing exchange set.
+[r, m] = sort([rr(pos) ; xk]);
+v = ones(Npts, 1);
+v(2:2:end) = -1;
+er = [feval(err_handle, rr(pos)) ; v*h];
+er = er(m);
 
-function r = mergePoints(rLeja, rOther, erOther, Npts)
-rLeja   = rLeja(:);
-rOther  = rOther(:);
-erOther = erOther(:);
+% Delete repeated points.
+repeated = diff(r) == 0;
+r(repeated) = [];
+er(repeated) = [];
 
-idx = rOther < rLeja(1);
-rTemp = rOther(idx);
-erTemp = erOther(idx);
-[~, pos] = max(abs(erTemp));
-r = rTemp(pos);
-i = 1;
-while i < length(rLeja)
-    r = [r; rLeja(i)]; 
-    k = i+1;
-    while ( ~any((rOther > rLeja(i)) & (rOther < rLeja(k))) )
-        k = k + 1;
-    end
-    idx = (rOther > rLeja(i)) & (rOther < rLeja(k));    
-    rTemp = rOther(idx);
-    erTemp = erOther(idx);
-    [~, pos] = max(abs(erTemp));
-    r = [r; rTemp(pos)];               
-    i = k;
-end
-r = [r; rLeja(end)];
-idx = rOther > rLeja(end);
-rTemp = rOther(idx);
-erTemp = erOther(idx);
-[~, pos] = max(abs(erTemp));
-r = [r; rTemp(pos)];
-if ( length(r) ~= Npts )
-    warning('You are likely to fail my friend.')
-end
 
-end
-
-function A = berrut(x, f, m, n)
-x = x(:); x = x.';
-f = f(:); f = f.';
-A = zeros(m+n, m+n+1);
-for i = 1:m
-    A(i, :) = x.^(i-1);
-end
-
-for i = 1:n
-    A(m+i,:) = f.*x.^(i-1);
-end
-end
-
-function L = lowner(y, x, r, N)
-
-L = zeros(r, N-r);
-
-for i = 1:r
-    for j = r+1:N
-        L(i,j-r) = (y(i) - y(j))/(x(i)-x(j));
+% Determine points and values to be kept for the reference set.
+s = r(1);    % Points to be kept.
+es = er(1);  % Values to be kept.
+for i = 2:length(r)
+    if ( (sign(er(i)) == sign(es(end))) && (abs(er(i)) > abs(es(end))) )
+        % Given adjacent points with the same sign, keep one with largest value.
+        s(end) = r(i);
+        es(end) = er(i);
+    elseif ( sign(er(i)) ~= sign(es(end)) )
+        % Keep points which alternate in sign.
+        s = [s ; r(i)];    %#ok<AGROW>
+        es = [es ; er(i)]; %#ok<AGROW>
     end
 end
 
+% Of the points we kept, choose n + 2 consecutive ones 
+% that include the maximum of the error.
+[norme, index] = max(abs(es));
+d = max(index - Npts + 1, 1);
+if ( Npts <= length(s) )
+    xk = s(d:d+Npts-1);
+    flag = 1;
+
+else
+    xk = s;
+    flag = 0;
 end
+
+end
+
+
+
