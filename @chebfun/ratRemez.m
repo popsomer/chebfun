@@ -87,7 +87,7 @@ if ( isempty(qmin) )
     qmin = chebfun(1, f.domain([1, end]));
 end
 
-xo = xk;
+
 
 % Print header for text output display if requested.
 if ( opts.displayIter )
@@ -95,34 +95,29 @@ if ( opts.displayIter )
 end
 
 
-
+% Old reference and levelled error
+x0 = xk;
+h0 = 0;
 % Run the main algorithm.
 while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaReference > 0) )
 
     [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xk, m, n);      
-
-    % If interpolation has failed:
-    xkTrial = xk;
-    while ( ~interpSuccess )
-        xkTrial = xkTrial + (xkTrial-xo)/2;
-        [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xkTrial, m, n);      
-        disp( 'interpolation not successful' )
-        if ( norm(xkTrial - xo, inf) < eps )
-            xkTrial = xo + 1e-4*rand(size(xo));
-        end
-        
+    
+    if ( abs(h) <= abs(h0) )
+        % The levelled error has not increased
+        disp('level error decreased' )
+        xk = makeNewReference(xkPrev, xk);
     end
-
     % Perturb exactly-zero values of the levelled error.
     if ( h == 0 )
         h = 1e-19;
     end
-
+    xkPrev = xk;
     % Update the exchange set using the Remez algorithm with full exchange.   
     [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, rh, N + 2, opts);
 
     % Update max. correction to trial reference and stopping criterion.
-    deltaReference = max(abs(xo - xk));
+    deltaReference = max(abs(x0 - xk));
     deltaLevelError = err - abs(h);
 
     % Store approximation with minimum norm.
@@ -139,7 +134,7 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaRef
 
     % Display diagnostic information as requested.
     if ( opts.plotIter )
-        doPlotIter(xo, xk, err_handle, dom);
+        doPlotIter(x0, xk, err_handle, dom);
         pause();
     end
 
@@ -151,7 +146,10 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaRef
         pause
     end
 
-    xo = xk;
+    % Save the old reference and
+    % the old levelled error.
+    x0 = xk;
+    h0 = h;
     iter = iter + 1
 end
 
@@ -463,6 +461,20 @@ else
     flag = 0;
 end
 
+end
+
+function xk = makeNewReference(x0, x1)
+
+xk = x0;
+if ( length(x0) ~= length(x1) )
+    error('makeNewReference:not equal points in both references')    
+end
+
+for i = 1:length(x0)
+    % Find the index of the nearest point:
+    [~, idx] = min(abs(x1-x0(i)));
+    xk(i) = x0(i) + (x1(idx) - x0(i))/2;
+end
 end
 
 
