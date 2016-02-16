@@ -15,6 +15,7 @@ doms = unique([f.domain(1); xk; f.domain(end)]);
 if ( isempty(xk) )
     ek = chebfun(@(x) err_handle(x), doms.', 'splitting', 'on');
     rts = roots(diff(ek), 'nobreaks');
+    rts = unique([f.domain(1); rts; f.domain(end)]);
 end
    
 if ( ~isempty(xk) )

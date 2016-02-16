@@ -206,9 +206,9 @@ pqh = @(x) feval(p, x)./feval(q, x);
 % with enough equioscillation points, just use the Chebyshev points.
 if ( flag == 0 )
     xk = chebpts(N + 2, f.domain([1, end]), 1);
-    xk = [xk(round(length(xk)/2)+1:length(xk)) - 1; xk(1:round(length(xk)/2))+1];
-    xk(round(length(xk)/2))=-1;
-    xk = sort(xk);    
+    %xk = [xk(round(length(xk)/2)+1:length(xk)) - 1; xk(1:round(length(xk)/2))+1];
+    %xk(round(length(xk)/2))=-1;
+    %xk = sort(xk);    
 end
 
 end
@@ -375,8 +375,8 @@ elseif ( max(abs(c(1:2:end)))/vscale(f) < eps ) % f is odd.
     if ( mod(m, 2) == 0 )
         m = max(m - 1, 0);
     end
-    if ( mod(n, 2) == 1 )
-        n = max(n - 1, 0);
+    if ( mod(n, 2) == 0 )
+        n = max(n + 1, 0);
     end
 end
 
@@ -455,7 +455,6 @@ d = max(index - Npts + 1, 1);
 if ( Npts <= length(s) )
     xk = s(d:d+Npts-1);
     flag = 1;
-
 else
     xk = s;
     flag = 0;

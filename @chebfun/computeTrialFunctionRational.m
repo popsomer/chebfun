@@ -26,7 +26,7 @@ if ( (length(pos) > 1) )
         'More than one vector doesn''t change sign');
 end
 
-if ( isempty(pos) )    
+if ( isempty(pos) )
     [~, pos] = max(abs(sum(sign(qk_all))));
     plusSign = sum(qk_all(:, pos) > 0);
     minusSign = sum(qk_all(:, pos) < 0);
