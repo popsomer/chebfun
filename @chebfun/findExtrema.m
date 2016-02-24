@@ -22,6 +22,7 @@ if ( ~isempty(xk) )
     for k = 1:length(doms)-1
         ek = chebfun(@(x) err_handle(x), [doms(k), doms(k+1)], 200, 'eps', 1e-9);     
         ek = simplify(ek);
+        %plot(ek)
         %length(ek)
     %         if (length(ek) > 4000 )
     %             %plot(ek);
@@ -31,8 +32,10 @@ if ( ~isempty(xk) )
     %             %plot(ek)
     %             %drawnow
     %             %pause()
-    %         end        
-
+    %         end
+        %disp('roots');
+        %roots(diff(ek), 'nobreaks')
+        %pause()
         rts = [rts; roots(diff(ek), 'nobreaks')];  %#ok<AGROW>
     end    
 end

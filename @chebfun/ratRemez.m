@@ -103,18 +103,70 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaRef
 
     [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xk, m, n);      
     
+    %if ( abs(h) <= abs(h0) )
+        % The levelled error has not increased
+        %disp('level error decreased' )
+        %xk = makeNewReference(xkPrev, xk);
+    %end
+    
+    %perform modiffications to the previous reference set until the current
+    %interpolant has no poles on the approximation domain (technically,
+    %we're not doing that just yet!!!)
+    if (interpSuccess == 0)
+        disp('perturb current reference set');
+        % xk is the current reference set that is causing us problems
+        [~, pos] = max(abs(feval(errPrev, xk)));
+        pos = pos(1);
+        [~, closeIdx] = min(abs(xkPrev-xk(pos)));
+        if (sign(errPrev(xk(pos))) ~= sign(errPrev(xkPrev(closeIdx))))
+            if(closeIdx == 1)
+                closeIdx = 2;
+            elseif(closeIdx == length(xkPrev))
+                closeIdx = length(xkPrev) - 1;
+            else
+                if(abs(xkPrev(closeIdx-1)-xk(pos)) < abs(xkPrev(closeIdx+1)-xk(pos)))
+                    closeIdx = closeIdx - 1;
+                else
+                    closeIdx = closeIdx + 1;
+                end    
+            end
+        end
+        
+        xkNew = xkPrev;
+        xkNew(closeIdx) = xk(pos);
+        [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xkNew, m, n);
+        
+        modifCounter = 0;
+        while (interpSuccess == 0 & (modifCounter <12))
+            xkNew = xkPrev;
+            modifCounter = modifCounter+1;
+            xkNew(closeIdx) = (1/2^modifCounter)*xk(pos) + (1 - 1/2^modifCounter)*xkPrev(closeIdx);
+            [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xkNew, m, n);
+        end
+        if(interpSuccess == 0)
+            error('Failed in the perturbation of the reference set!');
+        end
+        % Again, optimistic assumption that the previous loop works
+        xk = xkNew;
+    end
+    
     if ( abs(h) <= abs(h0) )
         % The levelled error has not increased
         disp('level error decreased' )
-        xk = makeNewReference(xkPrev, xk);
+        %xk = makeNewReference(xkPrev, xk);
     end
+    
+    xkPrev = xk;
+    %hPrev = h;
+    
     % Perturb exactly-zero values of the levelled error.
     if ( h == 0 )
         h = 1e-19;
     end
-    xkPrev = xk;
+    %xkPrev = xk;
     % Update the exchange set using the Remez algorithm with full exchange.   
     [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, rh, N + 2, opts);
+    errPrev = err_handle;
 
     % Update max. correction to trial reference and stopping criterion.
     deltaReference = max(abs(x0 - xk));
@@ -150,7 +202,8 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaRef
     % the old levelled error.
     x0 = xk;
     h0 = h;
-    iter = iter + 1
+    
+    iter = iter + 1;
 end
 
 % Take best results of all the iterations we ran.
@@ -205,10 +258,11 @@ pqh = @(x) feval(p, x)./feval(q, x);
 % If the above procedure failed to produce a reference
 % with enough equioscillation points, just use the Chebyshev points.
 if ( flag == 0 )
+    disp('CF failed');
     xk = chebpts(N + 2, f.domain([1, end]), 1);
-    %xk = [xk(round(length(xk)/2)+1:length(xk)) - 1; xk(1:round(length(xk)/2))+1];
-    %xk(round(length(xk)/2))=-1;
-    %xk = sort(xk);    
+    xk = [xk(round(length(xk)/2)+1:length(xk)) - 1; xk(1:round(length(xk)/2))+1];
+    xk(round(length(xk)/2))=-1;
+    xk = sort(xk);    
 end
 
 end
@@ -409,6 +463,7 @@ function [xk, norme, err_handle, flag] = exchange(xk, h, method, f, p, q, rh, Np
 % Rational case:
 
 rr = findExtrema(f, p, q, rh, h, xk);
+disp('finished extrema search');
 err_handle = @(x) feval(f, x) - rh(x);
 
 % Select exchange method.
@@ -448,11 +503,20 @@ for i = 2:length(r)
     end
 end
 
+%xx = linspace(-1,1,100000);
+%plot(xx, err_handle(xx));
+%hold on
+%plot(s, es,'or');
+%hold off
+%pause()
+
 % Of the points we kept, choose n + 2 consecutive ones 
 % that include the maximum of the error.
 [norme, index] = max(abs(es));
 d = max(index - Npts + 1, 1);
 if ( Npts <= length(s) )
+    %disp('Large candidate set:');
+    %length(s)
     xk = s(d:d+Npts-1);
     flag = 1;
 else
