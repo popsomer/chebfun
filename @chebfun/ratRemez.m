@@ -91,28 +91,38 @@ end
 
 % Print header for text output display if requested.
 if ( opts.displayIter )
-    disp('It.     Max(|Error|)       |ErrorRef|      Delta ErrorRef      Delta Ref')
+    disp('It.     Max(|Error|)     h=|ErrorRef|      Delta ErrorRef      Delta Ref')
 end
 
 
-% Old reference and levelled error
-x0 = xk;
-h0 = 0;
+% Last two references and 
+% last two levelled errors
+x0 = xk; x1 = xk;
+h0 = 0; h1 = 0;
+p0 = pmin; p1 = pmin;
+q0 = qmin; q1 = qmin;
+rh0 = @(x) feval(p0, x)./feval(q0, x); rh1 = rh0;
+pqh0 = @(x) feval(p0, x)./feval(q0, x); pqh1 = rh0;
+
 % Run the main algorithm.
 while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaReference > 0) )
-
-    [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xk, m, n);      
+    [p, q, rh, pqh, h, interpSuccess, isUnique] = computeTrialFunctionRational(f, xk, m, n);      
     
-    if ( abs(h) <= abs(h0) )
+    if ( abs(h) - abs(h1) <= 10*opts.tol || ~isUnique)
         % The levelled error has not increased
-        disp('level error decreased' )
-        xk = makeNewReference(xkPrev, xk);
+        %disp('level error decreased' )
+        p = p0; q = q0; rh = rh0; pqh = pqh0;
+        xk = makeNewReference(x0, x1);
+    else
+        p0 = p1; q0 = q1; rh0 = rh1; pqh0 = pqh1;
+        p1 = p; q1 = q; rh1 = rh; pqh1 = pqh;        
     end
     % Perturb exactly-zero values of the levelled error.
     if ( h == 0 )
         h = 1e-19;
     end
-    xkPrev = xk;
+    x0 = x1;
+    x1 = xk;
     % Update the exchange set using the Remez algorithm with full exchange.   
     [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, rh, N + 2, opts);
 
@@ -148,9 +158,10 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaRef
 
     % Save the old reference and
     % the old levelled error.
-    x0 = xk;
-    h0 = h;
-    iter = iter + 1
+    x1 = xk;
+    h0 = h1;
+    h1 = h;
+    iter = iter + 1;   
 end
 
 % Take best results of all the iterations we ran.
@@ -238,7 +249,11 @@ end
 % Function called when opts.displayIter is set.
 function doDisplayIter(iter, err, h, delta, normf, deltaReference)
 
-disp([num2str(iter), '        ', num2str(err, '%5.4e'), '        ', ...
+iterStr = num2str(iter);
+if ( iter < 10 )
+    iterStr = ['0', iterStr];
+end
+disp([iterStr, '        ', num2str(err, '%5.4e'), '        ', ...
     num2str(abs(h), '%5.4e'), '        ', ...
     num2str(delta/normf, '%5.4e'), '        ', num2str(deltaReference, '%5.4e')])
 end

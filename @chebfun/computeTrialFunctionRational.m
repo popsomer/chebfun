@@ -1,4 +1,4 @@
-function [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xk, m, n)
+function [p, q, rh, pqh, h, interpSuccess, isUnique] = computeTrialFunctionRational(f, xk, m, n)
 
 % Vector of alternating signs.
 N = m + n;
@@ -39,7 +39,6 @@ end
 
 qk = qk_all(:,pos);       % Keep qk with unchanged sign.
 h = d(pos, pos);          % Levelled reference error.
-disp(h);
 pk = (fk - h*sigma).*qk;  % Vals. of r*q in reference.
 
 
@@ -63,16 +62,27 @@ xx = xk; xx(nn) = [];
 fx = fvals; fx(nn) = [];
 A = berrut(xx, fx, m, n);
 v = null(A);
+if ( size(v, 2) > 1 )
+    isUnique = false;
+    rh = [];
+    pqh = [];
+    interpSuccess = false;
+    return
+else
+    isUnique = true;
+end
+
+
 rh = @(t) bary(t, fx, xx, v);
 pqh = @(x) p(x)./q(x);
 %r = chebfun(fh, dom, 'splitting', 'on');
 
 if (  absInterpError > 1e-7 )
     str = sprintf( 'abs interp error: %.16g', absInterpError);
-    disp(str)
-    interpSuccess = 0;
+    %disp(str)
+    interpSuccess = false;
 else
-    interpSuccess = 1;
+    interpSuccess = true;
 end
 
 
