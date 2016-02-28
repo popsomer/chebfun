@@ -26,7 +26,10 @@ function [u, info] = solvebvpNonlinear(N, rhs, L, u0, res, pref, displayInfo)
 
 % Store preferences used in the Newton iteration in separate variables
 maxIter  = pref.maxIter;
-errTol   = pref.errTol;
+bvpTol   = pref.bvpTol;
+
+% Loosen convergence tolerance for Newton iteration
+bvpTolNonlinear = 200*bvpTol;
 
 % Did the user request damped or undamped Newton iteration? Start in mode
 % requested (later on, the code can switch between modes).
@@ -65,7 +68,7 @@ errEst = inf;
 % Some initializations of the DAMPINGINFO struct. See 
 %   >> help dampingErrorBased 
 % for discussion of this struct. 
-dampingInfo.errTol =        errTol;
+dampingInfo.errTol =        bvpTolNonlinear;
 dampingInfo.normDeltaOld =  [];
 dampingInfo.normDeltaBar =  [];
 dampingInfo.lambda =        lambda;
@@ -76,9 +79,6 @@ dampingInfo.damping =       damping;
 dampingInfo.x =             x;
 dampingInfo.giveUp =        0;
 
-linpref = pref;
-linpref.errTol = pref.errTol/200;
-
 % Get the differential order of the LINOP L (needed when evaluating the residual
 % of periodic boundary conditions):
 diffOrder = L.diffOrder;
@@ -87,7 +87,15 @@ diffOrder = L.diffOrder;
 while ( ~terminate )
     
     % Compute a Newton update:
-    [delta, disc] = linsolve(L, res, linpref, vscale(u));
+    [delta, disc, converged] = linsolve(L, res, pref, vscale(u));
+    
+    % If solving for the Newton update did not converge, we have a gibberish
+    % update. This will cause the solution process to halt (we're solving
+    % something that's way too noisy), so bail out of the Newton iteration:
+    if ( ~converged )
+        giveUp = true;
+        break
+    end
 
     % We had two output arguments above, need to negate DELTA.
     delta = -delta;
@@ -101,7 +109,7 @@ while ( ~terminate )
     % At the first Newton iteration, we have to do additional checks.
     if ( newtonCounter == 0)
         % Did we actually get an initial passed that solves the BVP?
-        if ( normDelta/sum(vscale(u)) < errTol/100 )
+        if ( normDelta/sum(vscale(u)) < bvpTol )
             displayInfo('exactInitial', pref);
             info.error = NaN;
             info.normDelta = normDelta;
@@ -192,7 +200,7 @@ while ( ~terminate )
         normDelta, cFactor, length(delta{1}), lambda, len, displayFig, ...
         displayTimer, pref);
     
-    if ( errEst < errTol )  
+    if ( errEst < bvpTolNonlinear )  
         % Sweet, we have converged!      
         success = 1;
     elseif ( newtonCounter > maxIter )
@@ -239,6 +247,7 @@ end
 % Return useful information in the INFO structure
 info.normDelta = normDeltaVec(1:newtonCounter);
 info.error = errEst;
+info.converged = success;
 
 end
 

@@ -80,18 +80,10 @@ nM(end) = N+2; % For convenience (avoids treating final block differently).
 c_rec = zeros(N+1, n);
 jK2 = [jK(1,2)+1, 2*N+1 ; jK(1:K-1,:) ; 1, 2*N+1];
 for k = 1:K    % Loop over the block partitions:
-    j_bdy = [jK2(k+1,1):jK2(k,1)-1, jK2(k,2)+1:jK2(k+1,2)];% Boundary indicies.
-    x_bdy = cos(t(j_bdy));                             % Boundary x values.
-    wf_bdy = wf(j_bdy,:);                              % w.*f at boundary.
-    tmp = zeros(N+1,n);                                % Local LHS storage.
-    tmp(1:2,:) = [sum(wf_bdy) ; x_bdy'*wf_bdy];        % First two terms.
-    Pm2 = 1; Pm1 = x_bdy;                              % Initialise recurrence.
-    for kk = 1:min(nM(k)-3, N-1) % Recurrence:
-        P = (2-1/(kk+1))*Pm1.*x_bdy - (1-1/(kk+1))*Pm2; 
-        Pm2 = Pm1; Pm1 = P;
-        tmp(kk+2,:) = P'*wf_bdy;                       % Update local LHS.
-    end
-    c_rec = c_rec + tmp;                               % Global correction LHS.
+    j_bdy = [jK2(k+1,1):jK2(k,1)-1, jK2(k,2)+1:jK2(k+1,2)];% Boundary indicies.   
+    myN = min(nM(k)-1, N+1);
+    tmp = legvandermonde_bdy_trans(myN, t(j_bdy), wf(j_bdy,:));
+    c_rec(1:myN,:) = c_rec(1:myN,:) + tmp;        % Global correction LHS.
 end
 %%%%%%%%%%%%%%%%%%%% Asymptotics / interior region %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 c_leg = zeros(N+1, n);                                 % Initialise output.
@@ -117,7 +109,7 @@ for k = 1:K-1 % Loop over the block partitions.
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%% Combine for result %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 c_leg = c_leg + c_rec;
-scl = (NN+.5);                                       % Scaling in coeffs.
+scl = (NN+.5);                                         % Scaling in coeffs.
 if ( normalize )
     c_leg  = bsxfun(@times, c_leg, sqrt(scl) ); 
 else
@@ -147,6 +139,22 @@ for k = 1:N-1 % Recurrence relation:
 end
 scale = (2*(0:N).'+1)/2;            % Scaling in coefficients [NIST, (18.3.1)].
 c_leg = bsxfun(@times, L.'*(bsxfun(@times, f ,w)), scale); % Legendre coeffs.
+end
+
+function v = legvandermonde_bdy_trans(N, t, c)
+% Matrix-free implementation of v = L'*c where L(:,k+1) = P_k(cos(t)).
+x = cos(t);
+x0 = sign(x);
+% dx = x - x0;
+idx = t > pi/2; dx = 0*t; 
+dx(idx) = 2*cos(t(idx)/2).^2; dx(~idx) = -2*sin(t(~idx)/2).^2;
+rn = sign(x0); pn = 1; dn = 0*x;
+v = zeros(N, size(c,2)); v(1,:) = sum(c, 1);
+for n = 0:N-2
+    dn = ( (2-1/(n+1))*dx.*pn + (1-1/(n+1))*dn) .* rn;
+    pn = (pn + dn).*rn;
+    v(n+2,:) = pn.'*c;
+end
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -182,25 +190,6 @@ end
 
 function C = constantOutTheFront(N) % (See Hale and Townsend, 2014)
 %CONSTANTOUTTHEFRONT(N) = returns sqrt(4/pi)*gamma((0:N)+1)/gamma((0:N)+3/2))
-% Initialise:
-NN = (0:N)';
-NN(1) = 1; % Set the first value different from 0 to avoid complications.
-ds = -1/8./NN; s = ds; j = 1; ds(1) = 1;
-while ( norm(ds(10:end)./s(10:end),inf) > eps/100 )
-    j = j + 1;
-    ds = -.5*(j-1)/(j+1)./NN.*ds;
-    s = s + ds;
-end
-NN(1) = 0; % Reset the first value.
-p2 = exp(s).*sqrt(4./(NN+.5)/pi);
-% Stirling's series:
-g = [1 1/12 1/288 -139/51840 -571/2488320 163879/209018880 ...
-    5246819/75246796800 -534703531/902961561600 ...
-    -4483131259/86684309913600 432261921612371/514904800886784000];
-eN = ones(N+1, 1); e9 = ones(1, 9);
-ff1 = sum(bsxfun(@times, g, [eN, cumprod(bsxfun(@rdivide, e9, NN),2)]), 2);
-ff2 = sum(bsxfun(@times, g, [eN, cumprod(bsxfun(@rdivide, e9, NN+.5),2)]), 2);
-C = p2.*ff1./ff2;
-% Use direct evaluation for the small values:
-C(1:10) = sqrt(4/pi)*gamma((0:9)+1)./gamma((0:9)+3/2);
+NN = (0:N).';
+C = sqrt(4/pi)*exp(gammaln(NN+1) - gammaln(NN+3/2));
 end

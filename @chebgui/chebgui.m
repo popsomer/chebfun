@@ -120,7 +120,7 @@ classdef chebgui
         timedomain = '';    % Time domain (should include breakpoints)
         sigma = '';         % Third input to an EIGS call
         init = '';          % Initial guess/condition for nonlin BVPs/PDEs
-        tol = '1e-10';      % Solution tolerance
+        tol = '5e-13';      % Solution tolerance
 
         % This initalises the OPTIONS struct for CHEBGUI. It containts a list of
         % miscellaneous options for when solving problems with CHEBGUI, namely:
@@ -211,26 +211,7 @@ classdef chebgui
     %% CLASS METHODS:
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%   
     methods ( Access = public, Static = false )
-       
-        % Export a BVP to an .m file
-        exportBVP2mfile(guifile, pathname, filename)
-        
-        % Export an EIG problem to an .m file
-        exportEIG2mfile(guifile, pathname, filename, handles)
-        
-        % Export a PDE to an .m file
-        exportPDE2mfile(guifile, pathname, filename)
-                
-        % Populate the fields of the GUI
-        [field, allVarString, indVarName, pdeVarNames, pdeflag, eigVarNames, ...
-            allVarNames]  = setupFields(guifile, input, type, allVarString)
-        
-        % Solve a GUI BVP
-        varargout = solveGUIbvp(guifile,handles)
-        
-        % Solve a GUI EIG problem
-        varargout = solveGUIeig(guifile,handles)
-        
+
         function allVarNames = getVarNames(guifile)
             %GETVARNAMES    Return a cell-array with all variables names
             %
@@ -250,7 +231,6 @@ classdef chebgui
             [dummy, dummy, dummy, dummy, dummy, dummy, allVarNames] = ...
                 setupFields(guifile, deInput, 'DE');
         end
-        
         
     end
     
