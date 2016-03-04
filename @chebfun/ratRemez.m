@@ -91,40 +91,82 @@ end
 
 % Print header for text output display if requested.
 if ( opts.displayIter )
-    disp('It.     Max(|Error|)     h=|ErrorRef|      Delta ErrorRef      Delta Ref')
+    disp('It.     Max(|Error|)       |ErrorRef|      Delta ErrorRef      Delta Ref')
 end
 
 
-% Last two references and 
-% last two levelled errors
-x0 = xk; x1 = xk;
-h0 = 0; h1 = 0;
-p0 = pmin; p1 = pmin;
-q0 = qmin; q1 = qmin;
-rh0 = @(x) feval(p0, x)./feval(q0, x); rh1 = rh0;
-pqh0 = @(x) feval(p0, x)./feval(q0, x); pqh1 = rh0;
-
+% Old reference and levelled error
+x0 = xk;
+h0 = 0;
 % Run the main algorithm.
 while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaReference > 0) )
-    [p, q, rh, pqh, h, interpSuccess, isUnique] = computeTrialFunctionRational(f, xk, m, n);      
+
+    [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xk, m, n);      
     
-    if ( abs(h) - abs(h1) <= 10*opts.tol || ~isUnique)
+    %if ( abs(h) <= abs(h0) )
         % The levelled error has not increased
         %disp('level error decreased' )
-        p = p0; q = q0; rh = rh0; pqh = pqh0;
-        xk = makeNewReference(x0, x1);
-    else
-        p0 = p1; q0 = q1; rh0 = rh1; pqh0 = pqh1;
-        p1 = p; q1 = q; rh1 = rh; pqh1 = pqh;        
+        %xk = makeNewReference(xkPrev, xk);
+    %end
+    
+    %perform modiffications to the previous reference set until the current
+    %interpolant has no poles on the approximation domain (technically,
+    %we're not doing that just yet!!!)
+    if (interpSuccess == 0)
+        disp('perturb current reference set');
+        % xk is the current reference set that is causing us problems
+        [~, pos] = max(abs(feval(errPrev, xk)));
+        pos = pos(1);
+        [~, closeIdx] = min(abs(xkPrev-xk(pos)));
+        if (sign(errPrev(xk(pos))) ~= sign(errPrev(xkPrev(closeIdx))))
+            if(closeIdx == 1)
+                closeIdx = 2;
+            elseif(closeIdx == length(xkPrev))
+                closeIdx = length(xkPrev) - 1;
+            else
+                if(abs(xkPrev(closeIdx-1)-xk(pos)) < abs(xkPrev(closeIdx+1)-xk(pos)))
+                    closeIdx = closeIdx - 1;
+                else
+                    closeIdx = closeIdx + 1;
+                end    
+            end
+        end
+        
+        xkNew = xkPrev;
+        xkNew(closeIdx) = xk(pos);
+        [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xkNew, m, n);
+        
+        modifCounter = 0;
+        while (interpSuccess == 0 & (modifCounter <12))
+            xkNew = xkPrev;
+            modifCounter = modifCounter+1;
+            xkNew(closeIdx) = (1/2^modifCounter)*xk(pos) + (1 - 1/2^modifCounter)*xkPrev(closeIdx);
+            [p, q, rh, pqh, h, interpSuccess] = computeTrialFunctionRational(f, xkNew, m, n);
+        end
+        if(interpSuccess == 0)
+            error('Failed in the perturbation of the reference set!');
+        end
+        % Again, optimistic assumption that the previous loop works
+        xk = xkNew;
     end
+    
+    if ( abs(h) <= abs(h0) )
+        % The levelled error has not increased
+        disp('level error decreased' )
+        %xk = makeNewReference(xkPrev, xk);
+    end
+    
+    xkPrev = xk;
+    %hPrev = h;
+    
     % Perturb exactly-zero values of the levelled error.
     if ( h == 0 )
         h = 1e-19;
     end
-    x0 = x1;
-    x1 = xk;
+    %xkPrev = xk;
     % Update the exchange set using the Remez algorithm with full exchange.   
     [xk, err, err_handle] = exchange(xk, h, 2, f, p, q, rh, N + 2, opts);
+    errPrev = err_handle;
 
     % Update max. correction to trial reference and stopping criterion.
     deltaReference = max(abs(x0 - xk));
@@ -158,10 +200,10 @@ while ( (deltaLevelError/normf > opts.tol) && (iter < opts.maxIter) && (deltaRef
 
     % Save the old reference and
     % the old levelled error.
-    x1 = xk;
-    h0 = h1;
-    h1 = h;
-    iter = iter + 1;   
+    x0 = xk;
+    h0 = h;
+    
+    iter = iter + 1;
 end
 
 % Take best results of all the iterations we ran.
@@ -216,6 +258,7 @@ pqh = @(x) feval(p, x)./feval(q, x);
 % If the above procedure failed to produce a reference
 % with enough equioscillation points, just use the Chebyshev points.
 if ( flag == 0 )
+    disp('CF failed');
     xk = chebpts(N + 2, f.domain([1, end]), 1);
     xk = [xk(round(length(xk)/2)+1:length(xk)) - 1; xk(1:round(length(xk)/2))+1];
     xk(round(length(xk)/2))=-1;
@@ -249,11 +292,7 @@ end
 % Function called when opts.displayIter is set.
 function doDisplayIter(iter, err, h, delta, normf, deltaReference)
 
-iterStr = num2str(iter);
-if ( iter < 10 )
-    iterStr = ['0', iterStr];
-end
-disp([iterStr, '        ', num2str(err, '%5.4e'), '        ', ...
+disp([num2str(iter), '        ', num2str(err, '%5.4e'), '        ', ...
     num2str(abs(h), '%5.4e'), '        ', ...
     num2str(delta/normf, '%5.4e'), '        ', num2str(deltaReference, '%5.4e')])
 end
@@ -390,8 +429,8 @@ elseif ( max(abs(c(1:2:end)))/vscale(f) < eps ) % f is odd.
     if ( mod(m, 2) == 0 )
         m = max(m - 1, 0);
     end
-    if ( mod(n, 2) == 1 )
-        n = max(n - 1, 0);
+    if ( mod(n, 2) == 0 )
+        n = max(n + 1, 0);
     end
 end
 
@@ -424,6 +463,7 @@ function [xk, norme, err_handle, flag] = exchange(xk, h, method, f, p, q, rh, Np
 % Rational case:
 
 rr = findExtrema(f, p, q, rh, h, xk);
+disp('finished extrema search');
 err_handle = @(x) feval(f, x) - rh(x);
 
 % Select exchange method.
@@ -463,14 +503,22 @@ for i = 2:length(r)
     end
 end
 
+%xx = linspace(-1,1,100000);
+%plot(xx, err_handle(xx));
+%hold on
+%plot(s, es,'or');
+%hold off
+%pause()
+
 % Of the points we kept, choose n + 2 consecutive ones 
 % that include the maximum of the error.
 [norme, index] = max(abs(es));
 d = max(index - Npts + 1, 1);
 if ( Npts <= length(s) )
+    %disp('Large candidate set:');
+    %length(s)
     xk = s(d:d+Npts-1);
     flag = 1;
-
 else
     xk = s;
     flag = 0;

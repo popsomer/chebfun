@@ -222,8 +222,8 @@ elseif ( max(abs(c(1:2:end)))/vscale(f) < eps ) % f is odd.
     if ( mod(m, 2) == 0 )
         m = max(m - 1, 0);
     end
-    if ( mod(n, 2) == 1 )
-        n = max(n - 1, 0);
+    if ( mod(n, 2) == 0 )
+        n = max(n + 1, 0);
     end
 end
 
@@ -404,6 +404,7 @@ if ( ~isempty(opts.rh) )
 else
     e_num = (q.^2).*diff(f) - q.*diff(p) + p.*diff(q);
     rts = roots(e_num, 'nobreaks');
+    rts = unique([f.domain(1); rts; f.domain(end)]);
     % Function handle output for evaluating the error.
     err_handle = @(x) feval(f, x) - feval(p, x)./feval(q, x);
 end
