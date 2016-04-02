@@ -96,9 +96,7 @@ for ii = 1:ncols
             acur = [astr,'_',int2str(k)];
             % check acur for 0, 1, or -1
             acheb = eval(acur);
-            if ( norm(acheb) == 0 )
-                acur = [];
-            elseif ( length(acheb) == 1 && acheb(0) == 1 )
+            if ( length(acheb) == 1 && acheb(0) == 1 )
                 acur = '+';
             elseif ( length(acheb) == 1 && acheb(0) == -1 )
                 acur = '-';
