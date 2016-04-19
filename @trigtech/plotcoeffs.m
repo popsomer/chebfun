@@ -20,6 +20,9 @@ function varargout = plotcoeffs(f, varargin)
 % Copyright 2015 by The University of Oxford and The Chebfun Developers. 
 % See http://www.chebfun.org/ for Chebfun information.
 
+% set the default linestyle to dots
+set(groot,'DefaultAxesLineStyleOrder','.');
+
 % Deal with an empty input:
 if ( isempty(f) )
     if ( nargout == 1 )
@@ -60,16 +63,6 @@ if ( isEven )
     coeffIndex = -n/2:n/2-1;
 else
     coeffIndex = -(n-1)/2:(n-1)/2;
-end
-
-% Add a tiny amount to zeros to make plots look nicer:
-if ( vscale(f) > 0 )
-    % (Min of eps*vscale and the minimum non-zero coefficient)
-    absCoeffs(~absCoeffs) = min( min(eps*vscale(f)), ...
-                                 min(absCoeffs(logical(absCoeffs))) );                             
-else
-    % (add eps for zero CHEBTECHs)
-    absCoeffs = absCoeffs + eps;
 end
 
 if ( ~loglogPlot )
@@ -126,5 +119,8 @@ end
 if ( nargout > 0 )
     varargout{1} = h;
 end
+
+% set the default linestyle to factory
+set(groot,'DefaultAxesLineStyleOrder','remove');
 
 end

@@ -25,6 +25,9 @@ function varargout = plotcoeffs(f, varargin)
 %  coeffs plot, which can be more attractive in some situations.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+% set the default linestyle to dots
+set(groot,'DefaultAxesLineStyleOrder','.');
+
 % Deal with an empty input:
 if ( isempty(f) )
     if ( nargout == 1 )
@@ -60,20 +63,6 @@ holdState = ishold;
 % The coefficients and vertical scale:
 absCoeffs = abs(f.coeffs);
 vscl = vscale(f);
-
-% Add a tiny amount to zeros to make plots look nicer:
-if ( vscl > 0 )
-    if ( doBar )
-        absCoeffs(absCoeffs < min(eps*vscl)/100) = 0;
-    else
-        % Min of eps*vscale and the minimum non-zero coefficient:
-        absCoeffs(~absCoeffs) = min( min(eps*vscl), ...
-                                 min(absCoeffs(logical(absCoeffs))) );                             
-    end
-else
-    % Add eps for zero CHEBTECHs:
-    absCoeffs = absCoeffs + eps;
-end
 
 % Get the size:
 [n, m] = size(absCoeffs);
@@ -114,6 +103,9 @@ grid(gca, 'on')
 if ( nargout > 0 )
     varargout{1} = h;
 end
+
+% set the default linestyle to factory
+set(groot,'DefaultAxesLineStyleOrder','remove');
 
 end
 
