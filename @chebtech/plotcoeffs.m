@@ -25,8 +25,13 @@ function varargout = plotcoeffs(f, varargin)
 %  coeffs plot, which can be more attractive in some situations.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% set the default linestyle to dots
+% get linestyle defaults
+curDALSO = get(groot,'DefaultAxesLineStyleOrder');
+curDLMS = get(groot,'DefaultLineMarkerSize');
+
+% set the linestyle defaults
 set(groot,'DefaultAxesLineStyleOrder','.');
+set(groot,'DefaultLineMarkerSize',10);
 
 % Deal with an empty input:
 if ( isempty(f) )
@@ -105,7 +110,8 @@ if ( nargout > 0 )
 end
 
 % set the default linestyle to factory
-set(groot,'DefaultAxesLineStyleOrder','remove');
+set(groot,'DefaultAxesLineStyleOrder',curDALSO);
+set(groot,'DefaultLineMarkerSize',curDLMS);
 
 end
 

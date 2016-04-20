@@ -20,8 +20,13 @@ function varargout = plotcoeffs(f, varargin)
 % Copyright 2015 by The University of Oxford and The Chebfun Developers. 
 % See http://www.chebfun.org/ for Chebfun information.
 
-% set the default linestyle to dots
+% get linestyle defaults
+curDALSO = get(groot,'DefaultAxesLineStyleOrder');
+curDLMS = get(groot,'DefaultLineMarkerSize');
+
+% set the linestyle defaults
 set(groot,'DefaultAxesLineStyleOrder','.');
+set(groot,'DefaultLineMarkerSize',10);
 
 % Deal with an empty input:
 if ( isempty(f) )
@@ -121,6 +126,7 @@ if ( nargout > 0 )
 end
 
 % set the default linestyle to factory
-set(groot,'DefaultAxesLineStyleOrder','remove');
+set(groot,'DefaultAxesLineStyleOrder',curDALSO);
+set(groot,'DefaultLineMarkerSize',curDLMS);
 
 end
