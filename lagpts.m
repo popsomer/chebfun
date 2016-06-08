@@ -13,14 +13,19 @@ function [x, w, v] = lagpts(n, int, meth)
 %   METHOD = 'GW' will use the traditional Golub-Welsch eigenvalue method,
 %   which is best for when N is small. METHOD = 'FAST' will use the
 %   Glaser-Liu-Rokhlin fast algorithm, which is much faster for large N.
-%   By default LAGPTS uses 'GW' when N < 128.
+%   By default LAGPTS uses 'GW' when N < 128. METHOD = 'RH' will use asymptotics
+%   of Laguerre polynomials.
 %
 % References:
 %   [1] G. H. Golub and J. A. Welsch, "Calculation of Gauss quadrature rules",
 %       Math. Comp. 23:221-230, 1969,
 %   [2] A. Glaser, X. Liu and V. Rokhlin, "A fast algorithm for the calculation
 %       of the roots of special functions", SIAM Journal on Scientific 
-%       Computing", 29(4):1420-1438:, 2007.
+%       Computing", 29(4):1420-1438, 2007.
+%   [3] P. Opsomer, (in preparation).
+%   [4] M. Vanlessen, "Strong asymptotics of Laguerre-Type orthogonal
+%       polynomials and applications in Random Matrix Theory", Constr. Approx.,
+%       25:125-175, 2007.
 %
 % See also CHEBPTS, LEGPTS, HERMPTS, and JACPTS.
 
@@ -29,6 +34,7 @@ function [x, w, v] = lagpts(n, int, meth)
 %
 % 'GW' by Nick Trefethen, March 2009 - algorithm adapted from [1].
 % 'FAST' by Nick Hale, March 2010 - algorithm adapted from [2].
+% 'RH' by Peter Opsomer, June 2016 - algorithm adapted from [3], based on [4].
 
 % Defaults:
 method = 'default';
@@ -57,7 +63,7 @@ if ( nargin > 1 )
             interval = int;
         end
     end
-    if ( ~any(strcmpi(method, {'default', 'GW', 'fast'})) )
+    if ( ~any(strcmpi(method, {'default', 'GW', 'fast', 'RH'})) )
         error('CHEBFUN:lagpts:inputs', 'Unrecognised input string %s.', method);
     end
     if ( numel(interval) > 2 )
@@ -72,7 +78,7 @@ if ( sum(isinf(interval)) ~= 1 )
 end
 
 % decide to use GW or FAST
-if ( (n < 128 || strcmpi(method,'GW')) && ( ~strcmpi(method,'fast'))  )
+if ( strcmpi(method,'GW') || ( ( n < 128 ) && strcmpi(method,'default') ) )
     % GW, see [1]
     
     alpha = 2*(1:n)-1;  beta = 1:n-1;     % 3-term recurrence coeffs
@@ -84,11 +90,17 @@ if ( (n < 128 || strcmpi(method,'GW')) && ( ~strcmpi(method,'fast'))  )
     v = v./max(v); 
     v(2:2:n) = -v(2:2:n);
     
-else
+elseif ( strcmpi(method,'fast') || strcmpi(method,'default') )
     % Fast, see [2]
     [x, ders] = alg0_Lag(n);              % Nodes and L_n'(x)
     w = exp(-x)./(x.*ders.^2); w = w';    % Quadrature weights
     v = exp(-x/2)./ders;                  % Barycentric weights
+    v = -v./max(abs(v));
+    
+else
+    % RH, see [3] and [4]
+    [x, w] = alg_rh(n);                   % Nodes and quadrature weights
+    v = sqrt(w.*x);                       % Barycentric weights
     v = -v./max(abs(v));
     
 end
@@ -257,4 +269,54 @@ for j = 1:m
     k2 = -h/( sqrt(f1/x) + .25*(1/x-.25/f1)*sin(2*t) );
     x = x + .5*(k2 - k1);
 end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% %%%%%%%%%%%%%%%%%%%%%%% Routines for RH algorithm %%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function [x, w] = alg_rh(n)
+
+x = [ besselroots(0, 3).^2/(4*n + 2); zeros(n-3, 1) ];
+w = zeros(n, 1);
+
+% This is a heuristic for the number of terms in the expansions.
+T = ceil(25/log(n) );
+
+factor = -(1-1/(n+1))^(n+1)*(1+1/n)^(-1/2)/(4*n)/exp(-1-2*log(2))...
+    /sqrt(1-4i*sum((Ul0(1,2,1:(T-1),1) + Ur0(1,2,1:(T-1),1))./(n+1) ...
+    .^reshape(1:(T-1),[1,1,T-1]) ) )*sqrt(1-4i*sum((Ul0(1,2,1:(T-1),1) + ...
+    Ur0(1,2,1:(T-1),1))./n.^reshape(1:(T-1),[1,1,T-1]) ) );
+dPoly = @(y) poly(n, x, 0 , Ur0, Ul0) - poly(n, x, 1, Ur1, Ul1)*sqrt(n + 1);
+% poly = @(np, y, alpha, Ur, Ul) pl(np, y, alpha, Ur, Ul);
+poly = @pl;
+% The expansion near zero is employed for x/(4n) < 0.2 as a heuristic, otherwise
+% the expansion near 4n. This leads to the given bound for the index by using an
+% % approximation of the nodes and of the Bessel zeros.
+% The expansion in the lens is cheaper, but was less accurate.
+% % for k = 1:n/2
+for k = 1:n
+    if ( k > 3 )
+        x(ni) = 3*x(ni-1) - 3*x(ni-2) + x(ni-3);
+    end
+    if ( x(ni) > 0.2*n )
+        poly = @pr;
+    end
+    step = x(ni);
+    % [FIXME] Accuracy of the expansions up to machine precision would lower this bound.
+    while ( abs(step) > eps*400*x(ni) )
+        pe = poly(n, x(ni), 0, Ur0, Ul0);
+        % poly' = (p*exp(-Q/2) )' = exp(-Q/2)*(p' -p/2) with orthonormal p
+        step = pe/(dPoly( x(ni) ) - pe/2);
+        x(ni) = x(ni) -step;
+    end
+    w(k) = factor*dPoly( x(ni) )*poly(n+1, x(ni), 0, Ur0, Ul0)/exp( x(ni) );
+    if ( w(k) == 0 ) && ( k > 1 ) && ( w(k-1) > 0 )
+        display(['Weights are far below realmin from k = ' num2str(k)]);
+    end
+end
+
+% Now use the expansion in the right disk
+
+    
 end
