@@ -298,36 +298,58 @@ factor = -(1-1/(n+1))^(n+1)*(1+1/n)^(-1/2)/(4*n)/exp(-1-2*log(2))...
 % poly = @(np, y, alpha, Ur, Ul) pl(np, y, alpha, Ur, Ul);
 poly = @pl;
 % dPoly = @(y) poly(n, y, 0 , UQ0) - poly(n, y, 1, UQ1)*sqrt(n + 1);
+% [FIXME] Ensure analytic continuation of all functions to avoid adding eps*1i.
 dPoly = @(y) pl(n-1,(1+eps*1i)*y, 1, UQ1)*sqrt(n);
 % The expansion near zero is employed for x/(4n) < 0.2 as a heuristic, otherwise
 % the expansion near 4n. This leads to the given bound for the index by using an
 % % approximation of the nodes and of the Bessel zeros.
 % The expansion in the lens is cheaper, but was less accurate.
 % % for k = 1:n/2
+ls = zeros(n,1);
 for k = 1:n
     if ( k > 3 )
         x(k) = 3*x(k-1) - 3*x(k-2) + x(k-3);
     end
-    if ( x(k) > 0.2*n )
+%     if ( x(k) > 0.2*n )
+    if ( x(k) >= 0.8*n )
         poly = @pr;
-        dPoly = @(y) pr(n, x, 0 , UQ0) - pr(n, x, 1, UQ1)*sqrt(n + 1);
+        % [FIXME] Enable n-1 near y=4n by analytic continuation of all functions.
+        dPoly = @(y) pr(n, y, 0 , UQ0) - pr(n, y, 1, UQ1)*sqrt(n + 1);
     end
     step = x(k);
-    counter = 0;
+    l = 0;
+    ov = inf;
+    ox = x(k);
     % [FIXME] Accuracy of the expansions up to machine precision would lower this bound.
-    while ( abs(step) > eps*400*x(k) )
+    % [FIXME] Accuracy of the expansions up to machine precision lowers this bound.
+    while ( ( abs(step) > eps*400*x(k) ) && ( l < 20))%5 ) )
+        l = l + 1;
         pe = poly(n, x(k), 0, UQ0);
         % poly' = (p*exp(-Q/2) )' = exp(-Q/2)*(p' -p/2) with orthonormal p
         step = pe/(dPoly( x(k) ) - pe/2);
-        counter = counter + 1;
+        if (abs(pe) > abs(ov) + 1e-12)
+%             error('Function values increase in Newton method.')
+            x(k) = ox;
+            break
+        end
+%         counter = counter + 1;
+        ox = x(k);
         x(k) = x(k) -step;
+        ov = pe;
     end
-    w(k) = factor*dPoly( x(k) )*poly(n+1, x(k), 0, UQ0)/exp( x(k) );
+    ls(k) = l;
+%     if ( l == 5 )
+%         warning('Newton method did not convergence as expected.');
+%     end
+%     w(k) = factor*dPoly( x(k) )*poly(n+1, x(k), 0, UQ0)/exp( x(k) );
+    w(k) = factor/dPoly( x(k) )/poly(n+1, x(k), 0, UQ0)/exp( x(k) );
+%     [k,counter, x(k), w(k)]
     if ( w(k) == 0 ) && ( k > 1 ) && ( w(k-1) > 0 )
-        display(['Weights are below realmin*eps from k = ' num2str(k)]);
+        warning( ['Weights are below realmin*eps from k = ' num2str(k) '.'] );
     end
 end
-    
+figure; plot(ls);
+
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -392,7 +414,7 @@ RL = RL*[2^(-alpha), 0; 0, 2^alpha]*[sin( (alpha + 1)/2*acos(2*z - 1) - ...
     -1i*cos( (alpha - 1)/2*acos(2*z - 1) - pi*alpha/2)];
 % p = (4*np)^(-1/2 - alpha/2)*exp(np*(1 + 2*log(2)))*sqrt(2)*2^alpha...
 p = real( (4*np)^(-1/2 - alpha/2)*sqrt(2)*2^alpha...
-    /sqrt(1 - 4i*sum((UQ(2,2,1:mk,1) + UQ(1,2,1:mk,1))./np ...
+    /sqrt(1 - 4i*4^alpha*sum((UQ(2,2,1:mk,1) + UQ(1,2,1:mk,1))./np ...
     .^reshape(1:mk,[1,1,mk]) ) )*(-1)^np*sqrt(1i*np*pb)/z^(1/4)/ ...
     (1 - z)^(1/4)*z^(-alpha/2)*RL*[besselj(alpha,2i*np*pb); ...
     (besselj(alpha-1,2i*np*pb) - alpha/(2i*np*pb)*besselj(alpha, 2i*np*pb) )] );
@@ -410,6 +432,58 @@ p = real( (4*np)^(-1/2 - alpha/2)*sqrt(2)*2^alpha...
 % p = (4*np)^(-1/2 - alpha/2)*exp(np*(1 + 2*log(2)))*sqrt(2)*2^alpha...
 %     /sqrt(1 - 4i*sum((UQ(2,2,1:mk,1) + UQ(1,2,1:mk,1))./np ...
 %     .^reshape(1:mk,[1,1,mk]) ) )*RL;
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Compute the expansion of the orthonormal polynomial near 4n without e^(x/2)
+function p = pr(np, y, alpha, UQ)
+z = (1+eps*1i)*y/4/np;
+mxi = 2i*( sqrt(z).*sqrt(1 - z) - acos(sqrt(z) ) ); % = -xin
+
+RR = [1, 0];
+mk = size(UQ,3); % mk may be zero
+if abs(z)^(-mk/2) > 1/sqrt(eps)
+	% z is too close to the endpoint so use series expansion.
+    for k = 1:mk
+        for n = 0:8-k
+            RR = RR + UQ(3,:,k,n+1)*(z-1)^n/np^k;
+        end
+    end
+else % z is far enough to use formulas with pole cancellation.
+    Rko = zeros(1,2,mk);
+    sR = zeros(2,2,mk);
+    for k = 1:mk
+        for m = 1:ceil(3*k/2)
+            Rko(:,:,k) = Rko(:,:,k) + UQ(2,:,k,m)./z.^m + UQ(1,:,k,m)./(z-1).^m;
+        end
+        phi = 2*z - 1 + 2*sqrt(z)*sqrt(z - 1);
+        mu = 3*gamma(3*k - 1/2)*2^k/27^k/sqrt(pi)/gamma(k*2);
+        sR(:, :, k) = [1/2^alpha, 0; 0, 2^alpha]*[sqrt(phi), 1i/sqrt(phi);
+            -1i/sqrt(phi), sqrt(phi) ]/2/z^(1/4)/(z-1)^(1/4)* ...
+            [phi^(alpha/2), 0; 0, phi^(-alpha/2)];
+        sR(:, :, k) = 1/2/mxi^k*sR(:, :, k)*[-(-1)^k*mu/6/k, 1i*mu; ...
+            -1i*(-1)^k*mu, -mu/6/k]/sR(:, :, k);
+        sR(:, :, k) = sR(:, :, k) + mod(k + 1,2)*mu/6/k/mxi^k*eye(2);
+        
+        RR = RR + (Rko(1,:,k) - sR(1,:,k) )/np^k;
+        for m = 1:k-1
+            RR = RR - Rko(1,:,k-m)*sR(:,:,m)/np^k;
+        end
+    end
+end
+
+fn = (np*3/2*mxi)^(2/3);
+
+RR = RR*[2^(-alpha), 0; 0, 2^alpha]*[cos( (alpha + 1)/2*acos(2*z - 1) ), ...
+    -1i*sin( (alpha + 1)/2*acos(2*z - 1) ) ; -1i*cos( (alpha - 1)/2* ...
+    acos(2*z - 1) ), -sin( (alpha - 1)/2*acos(2*z - 1) )];
+
+p = real( (4*np)^(-1/2 - alpha/2)*sqrt(2)*2^alpha...
+    /sqrt(1 - 4i*4^alpha*sum((UQ(2,2,1:mk,1) + UQ(1,2,1:mk,1))./np ...
+    .^reshape(1:mk,[1,1,mk]) ) )/z^(1/4)/(z - 1)^(1/4)*z^(-alpha/2)* ...
+    RR*[fn^(1/4)*airy(0,fn); fn^(-1/4)*airy(1,fn) ] );
+
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
