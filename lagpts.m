@@ -296,26 +296,25 @@ factor = -(1-1/(n+1))^(n+1)*(1+1/n)^(-1/2)/(4*n)/exp(-1-2*log(2))...
     UQ0(1,2,1:T-1,1))./n.^reshape(1:T-1,[1,1,T-1]) ) );
 % dPoly = @(y) poly(n, x, 0 , UQ0) - poly(n, x, 1, UQ1)*sqrt(n + 1);
 % poly = @(np, y, alpha, Ur, Ul) pl(np, y, alpha, Ur, Ul);
-poly = @pl;
+% % poly = @pl;
 % dPoly = @(y) poly(n, y, 0 , UQ0) - poly(n, y, 1, UQ1)*sqrt(n + 1);
 % [FIXME] Ensure analytic continuation of all functions to avoid adding eps*1i.
-dPoly = @(y) pl(n-1,(1+eps*1i)*y, 1, UQ1)*sqrt(n);
+% % dPoly = @(y) pl(n-1,(1+eps*1i)*y, 1, UQ1)*sqrt(n);
 % The expansion near zero is employed for x/(4n) < 0.2 as a heuristic, otherwise
 % the expansion near 4n. This leads to the given bound for the index by using an
 % % approximation of the nodes and of the Bessel zeros.
 % The expansion in the lens is cheaper, but was less accurate.
-% % for k = 1:n/2
-ls = zeros(n,1);
+% % ls = zeros(n,1);
 for k = 1:n
     if ( k > 3 )
         x(k) = 3*x(k-1) - 3*x(k-2) + x(k-3);
     end
 %     if ( x(k) > 0.2*n )
-    if ( x(k) >= 0.8*n )
-        poly = @pr;
-        % [FIXME] Enable n-1 near y=4n by analytic continuation of all functions.
-        dPoly = @(y) pr(n, y, 0 , UQ0) - pr(n, y, 1, UQ1)*sqrt(n + 1);
-    end
+% %     if ( x(k) >= 0.8*n )
+% %         poly = @pr;
+% %         % [FIXME] Enable n-1 near y=4n by analytic continuation of all functions.
+% %         dPoly = @(y) pr(n, y, 0 , UQ0) - pr(n, y, 1, UQ1)*sqrt(n + 1);
+% %     end
     step = x(k);
     l = 0;
     ov = inf;
@@ -324,12 +323,16 @@ for k = 1:n
     % [FIXME] Accuracy of the expansions up to machine precision lowers this bound.
     while ( ( abs(step) > eps*400*x(k) ) && ( l < 20))%5 ) )
         l = l + 1;
-        pe = poly(n, x(k), 0, UQ0);
+% %         pe = poly(n, x(k), 0, UQ0);
+%         pe = pb(n, x(k), 0);
+        pe = pb(n, x(k), 0, UQ0);
         % poly' = (p*exp(-Q/2) )' = exp(-Q/2)*(p' -p/2) with orthonormal p
-        step = pe/(dPoly( x(k) ) - pe/2);
-        if (abs(pe) > abs(ov) + 1e-12)
+% %         step = pe/(dPoly( x(k) ) - pe/2);
+%         step = pe/(pb(n-1, x(k), 1)*sqrt(n) - pe/2);
+        step = pe/(pb(n-1, x(k), 1, UQ1)*sqrt(n) - pe/2);
+        if (abs(pe) > abs(ov) + 1e-12) % Function values increase.
 %             error('Function values increase in Newton method.')
-            x(k) = ox;
+            x(k) = ox; % Set to previous value and quit.
             break
         end
 %         counter = counter + 1;
@@ -337,18 +340,50 @@ for k = 1:n
         x(k) = x(k) -step;
         ov = pe;
     end
-    ls(k) = l;
+% %     ls(k) = l;
 %     if ( l == 5 )
 %         warning('Newton method did not convergence as expected.');
 %     end
 %     w(k) = factor*dPoly( x(k) )*poly(n+1, x(k), 0, UQ0)/exp( x(k) );
-    w(k) = factor/dPoly( x(k) )/poly(n+1, x(k), 0, UQ0)/exp( x(k) );
+%     w(k) = factor/pb(n-1, x(k), 1)/sqrt(n)/pb(n+1, x(k), 0)/exp( x(k) );
+    w(k) = factor/pb(n-1, x(k), 1, UQ1)/sqrt(n)/pb(n+1, x(k), 0, UQ0)/exp( x(k) );
 %     [k,counter, x(k), w(k)]
     if ( w(k) == 0 ) && ( k > 1 ) && ( w(k-1) > 0 )
         warning( ['Weights are below realmin*eps from k = ' num2str(k) '.'] );
     end
 end
-figure; plot(ls);
+% figure; plot(ls);
+
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Compute the expansion of the orthonormal polynomial in the bulk without e^(x/2)
+function p = pb(np, y, alpha, UQ)
+z = y/4/np;
+mxi = 2i*( sqrt(z).*sqrt(1 - z) - acos(sqrt(z) ) ); % = -xin
+
+% % R = [1, 0];
+% % mk = size(UQ,3); % mk may be zero
+% % for k = 1:mk
+% %     for m = 1:ceil(3*k/2)
+% %         R = R + UQ(2,:,k,m)./z.^m/np^k + UQ(1,:,k,m)./(z-1).^m/np^k;
+% %     end
+% % end
+
+phi = 2*z - 1 + 2*sqrt(z)*sqrt(z - 1);
+p = real( (4*np)^(-1/2 - alpha/2)/sqrt(2*pi)/z^(1/4)/(z-1)^(1/4)*...
+    (exp(-np*mxi)*sqrt(phi)*(phi/z)^(alpha/2) + ... %0*UQ(1,1,1,1) + ...
+    z^(-alpha)*exp(np*mxi)*1i/sqrt(phi)*(phi/z)^(-alpha/2) ) );
+% Pinf = 1/2^alpha*[sqrt(phi)*(phi/z)^(alpha/2), 1i/sqrt(phi)*(phi/z)^(-alpha/2)]/2/z^(1/4)/(z-1)^(1/4);
+
+% % Pinf = [1/2^alpha, 0; 0, 2^alpha]*[sqrt(phi), 1i/sqrt(phi);
+% %     -1i/sqrt(phi), sqrt(phi) ]/2/z^(1/4)/(z-1)^(1/4)* ...
+% %     [(phi/z)^(alpha/2), 0; 0, (phi/z)^(-alpha/2)];
+
+% % p = real( (4*np)^(-1/2 - alpha/2)*sqrt(2/pi)*2^alpha...
+% %     /sqrt(1 - 4i*4^alpha*sum((UQ(2,2,1:mk,1) + UQ(1,2,1:mk,1))./np ...
+% %     .^reshape(1:mk,[1,1,mk]) ) )*R*Pinf*[exp(-np*mxi) ; z^(-alpha)*exp(np*mxi) ] );
 
 end
 
