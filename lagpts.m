@@ -13,9 +13,10 @@ function [x, w, v] = lagpts(n, int, meth)
 %   METHOD = 'GW' will use the traditional Golub-Welsch eigenvalue method,
 %   which is best for when N is small. METHOD = 'FAST' will use the
 %   Glaser-Liu-Rokhlin fast algorithm, which is much faster for large N.
-%   By default LAGPTS uses 'GW' when N < 128. METHOD = 'RH' will use asymptotics
-%   of Laguerre polynomials, and is O(sqrt(n)) when allowed to stop when the 
-%   weights are below realmin.
+%   METHOD = 'RH' will use asymptotics of Laguerre polynomials, and METHOD =  
+%   'RHW' is O(sqrt(n)) as it stops when the weights are below realmin. 
+%   By default LAGPTS uses 'GW' when N < 128, 'FAST' when N is in [128, 4200]
+%   and else 'RH'.
 %
 % References:
 %   [1] G. H. Golub and J. A. Welsch, "Calculation of Gauss quadrature rules",
@@ -52,7 +53,7 @@ if ( n == 0 )
     return
 end
 
-% Check the inputs
+% Check the inputs.
 if ( nargin > 1 )
     if ( nargin == 3 )
         interval = int;
@@ -64,7 +65,7 @@ if ( nargin > 1 )
             interval = int;
         end
     end
-    if ( ~any(strcmpi(method, {'default', 'GW', 'fast', 'RH'})) )
+    if ( ~any(strcmpi(method, {'default', 'GW', 'fast', 'RH', 'RHW'})) )
         error('CHEBFUN:lagpts:inputs', 'Unrecognised input string %s.', method);
     end
     if ( numel(interval) > 2 )
@@ -78,7 +79,7 @@ if ( sum(isinf(interval)) ~= 1 )
     error('CHEBFUN:lagpts:inf', 'LAGPTS only supports semi-infinite domains.');
 end
 
-% decide to use GW or FAST
+% Decide to use GW, FAST or RH.
 if ( strcmpi(method,'GW') || ( ( n < 128 ) && strcmpi(method,'default') ) )
     % GW, see [1]
     
@@ -91,7 +92,7 @@ if ( strcmpi(method,'GW') || ( ( n < 128 ) && strcmpi(method,'default') ) )
     v = v./max(v); 
     v(2:2:n) = -v(2:2:n);
     
-elseif ( strcmpi(method,'fast') || strcmpi(method,'default') )
+elseif ( strcmpi(method,'fast') || ( ( n < 4200) && strcmpi(method,'default') ) )
     % Fast, see [2]
     [x, ders] = alg0_Lag(n);              % Nodes and L_n'(x)
     w = exp(-x)./(x.*ders.^2); w = w';    % Quadrature weights
@@ -100,12 +101,12 @@ elseif ( strcmpi(method,'fast') || strcmpi(method,'default') )
     
 else
     % RH, see [3] and [4]
-    [x, w] = alg_rh(n);                   % Nodes and quadrature weights
-    v = sqrt(w'.*x);                       % Barycentric weights
+    [x, w] = alg_rh(n, strcmpi(method, 'RHW') );  % Nodes and quadrature weights
+    v = sqrt(w'.*x);                              % Barycentric weights
     v = -v./max(abs(v));
-    
+    % No normalisation is necessary
 end
-w = (1/sum(w))*w;                         % Normalise so that sum(w) = 1
+w = (1/sum(w))*w;                                 % Normalise so that sum(w) = 1
 
 % Nonstandard interval
 if ( ~all(interval == [0, inf]) )
@@ -233,7 +234,7 @@ while ( (abs(step) > eps || abs(u) > eps) && (l < 200) )
     x1 = x1 - step;
 end
 
-[ignored, d1] = eval_Lag(x1, n);
+[~, d1] = eval_Lag(x1, n);
 
 end
 
@@ -276,114 +277,75 @@ end
 %% %%%%%%%%%%%%%%%%%%%%%%% Routines for RH algorithm %%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function [x, w] = alg_rh(n)
+function [x, w] = alg_rh(n, compRepr)
 
-% mn = min(n,1e5);
-% mn = ceil(17*sqrt(n)); % Gives about the values where the weights are about realmin.
-mn = n;
-% x = [ besselroots(0, 3).^2/(4*n + 2); zeros(n-3, 1) ];
+if compRepr
+    % Only compute up till where the weights are about above realmin.
+    mn = min(n,ceil(17*sqrt(n)));
+else
+    mn = n;
+end
 x = [ besselroots(0, 3).^2/(4*n + 2); zeros(mn-3, 1) ];
-% w = zeros(n, 1);
 w = zeros(1, mn);
-% w = zeros(1, n);
 
-% factor = -(1-1/(n+1))^(n+1)*(1+1/n)^(-1/2)/(4*n)/exp(-1-2*log(2))...
-%     /sqrt(1 - 4i*sum((UQ0(2,2,1:T-1,1) + UQ0(1,2,1:T-1,1))./(n + 1) ...
-%     .^reshape(1:T-1,[1,1,T-1]) ) )*sqrt(1 - 4i*sum((UQ0(2,2,1:T-1,1) + ...
-%     UQ0(1,2,1:T-1,1))./n.^reshape(1:T-1,[1,1,T-1]) ) );
+factor0 = 2.757254379232566e-04*n^(-6) + 1.511212766999818e-03*n^(-5) - ...
+    8.937757201646138e-04*n^(-4) - 4.783950617283954e-03*n^(-3) +...
+    1.388888888888890e-02*n^(-2) + 1.666666666666667e-01*n^(-1) + 1;
+factor1 = 1.786938204923081e-03*(n-1)^(-6) + 6.174370468351152e-04*(n-1)^(-5)...
+    - 5.677726337448679e-03*(n-1)^(-4) + 9.104938271604964e-03*(n-1)^(-3) + ...
+    1.805555555555556e-01*(n-1)^(-2) + 1.166666666666667*(n-1)^(-1) + 1;
 
-factor0 = 2.757254379232566e-04*[n, n + 1].^(-6) + 1.511212766999818e-03*[n, ...
-    n + 1].^(-5) - 8.937757201646138e-04*[n, n + 1].^(-4) - ...
-    4.783950617283954e-03*[n, n + 1].^(-3) + 1.388888888888890e-02*[n, ...
-    n + 1].^(-2) + 1.666666666666667e-01*[n, n + 1].^(-1) + 1;
-factor1 =  4.467345512307702e-04*[n - 1, n].^(-6) + 1.543592617087788e-04*...
-    [n - 1, n].^(-5) -1.419431584362170e-03*[n - 1, n].^(-4) + ...
-    2.276234567901241e-03*[n - 1, n].^(-3) + 4.513888888888890e-02*...
-    [n - 1, n].^(-2) + 2.916666666666667e-01*[n - 1, n].^(-1) + 1;
-
-% factorx = (2*n-2)*sqrt(factor1(1)/factor0(1));
-% factorx = sqrt(factor1(1)/factor0(1))/(1 - 1/n);
-factorx = sqrt(factor1(1)/factor0(1))/(2 - 2/n);
-factorw = -(1 - 1/(n + 1) )^(n + 1)*(1 - 1/n)*exp(1 + 2*log(2) )*2*pi*...
-    sqrt(factor0(1)*factor1(1)/(n + 1) );
+factorx = sqrt(factor1/factor0)/(2 - 2/n);
+factorw = -(1 - 1/(n + 1) )^(n + 1)*(1 - 1/n)*exp(1 + 2*log(2) )*4*pi*...
+    sqrt(factor0*factor1);
 
 % This is a heuristic for the number of terms in the expansions that follow.
 T = ceil(25/log(n) );
 
 poly = @pl;
-dPoly = @(y) pl(n-1, y, 1, T); %*sqrt(n);
-% The expansion near zero is employed for x/(4n) < 0.2 as a heuristic, otherwise
-% the expansion near 4n. This leads to the given bound for the index by using an
-% % approximation of the nodes and of the Bessel zeros.
-% The expansion in the lens is cheaper, but was less accurate.
-ls = zeros(mn,1);
-for k = 1:mn%1e5 % [TEST]
-% for k = 1:n
+for k = 1:mn
     if ( k > 3 )
         x(k) = 3*x(k-1) - 3*x(k-2) + x(k-3);
     end
-%     if ( x(k) >= 4*n-7*sqrt(n) )
-%     if ( x(k) >= 4*n*(1-max(1e-8, 1.8/sqrt(n) ) ) ) % Heuristic
-%     if ( x(k) >= 4*n*(1-max(1e-7, 1.1/sqrt(n) ) ) ) % Heuristic
-%     if x(k) > 0.8*n
     if x(k) > 3.7*n
         poly = @pr;
         % [FIXME] Enable n-1 near y=4n by analytic continuation of all functions.
-        % [TODO] Fix ratio dPoly/poly
-%         dPoly = @(y) pr(n, y, 0 , T) - pr(n, y, 1, T)*sqrt(n + 1);
-        dPoly = @(y) pr(n-1, y, 1, T);
-%     elseif ( x(k) >= 4*n*max(1e-10, 1.3e3/n^3) )
-%     elseif ( x(k) >= 4*n*max(1e-10, 1.3e3/n^2) )
-    elseif x(k) > n/2
+    elseif x(k) > sqrt(n) 
+        % The fixed delta in the RHP would mean this bound is proportional to 
+        % n, but x(1:k) are O(1/n) so choose bound in between to
+        % make more use of the (cheaper) expansion in the bulk.
         poly = @pb;
-        dPoly = @(y)  pb(n-1, y, 1, T); %*sqrt(n);
     end
     step = x(k);
     l = 0;
     ov = inf;
     ox = x(k);
-    attempts = zeros(19,2);
-    % [FIXME] Accuracy of the expansions up to machine precision would lower this bound.
+    % [FIXME] Accuracy of the expansions up to eps would lower this bound.
     while ( ( abs(step) > eps*400*x(k) ) && ( l < 20) )
         l = l + 1;
         pe = poly(n, x(k), 0, T);
         % poly' = (p*exp(-Q/2) )' = exp(-Q/2)*(p' -p/2) with orthonormal p
-%         step = pe/(dPoly( x(k) ) - pe/2);
-        step = pe/(dPoly( x(k) )*factorx - pe/2);
-%         if (abs(pe) > abs(ov) + 1e-12) % Function values increase.
-%         if (abs(pe) >= abs(ov) ) % Function values do not decrease any more.
-%         if (abs(pe) >= abs(ov)*(1-1e3*eps) ) 
-        if isnan(step)
-            debug = 1;
-        end
+        step = pe/(poly(n-1, x(k), 1, T)*factorx - pe/2);
         if (abs(pe) >= abs(ov)*(1-5e5*eps) ) 
             % The function values do not decrease enough any more.
             x(k) = ox; % Set to previous value and quit.
             break
         end
-        attempts(l,:) = [x(k), pe];
         ox = x(k);
         x(k) = x(k) -step;
         ov = pe;
     end
-    if l == 20
-        figure; plot(attempts(:,1), attempts(:,2), 'r*'); hold on;
-        xs = linspace(x(k-1), 2*x(k)-x(k-1), 200);
-        vals = zeros(size(xs));
-        for xi = 1:length(xs)
-            vals(xi) = poly(n,xs(xi), 0, T);
-        end
-        plot(xs,vals, 'b--');
-        error('No convergence')
-    end
-    ls(k) = l;
-    w(k) = factorw/dPoly( x(k) )/poly(n+1, x(k), 0, T)/exp( x(k) );
-%     w(k) = factor/dPoly( x(k) )/poly(n+1, x(k), 0, T)/exp( x(k) );
+    w(k) = factorw/poly(n - 1, x(k), 1, T)/poly(n+1, x(k), 0, T)/exp( x(k) );
     if ( w(k) == 0 ) && ( k > 1 ) && ( w(k-1) > 0 ) % We could stop now.
-        warning( ['Weights are below realmin from k about ' num2str(k) '.'] );
+        if compRepr
+            w = w(1:k-1);
+            x = x(1:k-1);
+            return;
+        else
+            warning( ['Weights are < realmin from k about ' num2str(k) '.'] );
+        end
     end
 end
-% figure; plot(ls);
 
 end
 
@@ -392,17 +354,14 @@ end
 % Compute the expansion of the orthonormal polynomial in the bulk without e^(x/2)
 function p = pb(np, y, alpha, T)
 z = y/4/np;
-mxi = 2i*( sqrt(z).*sqrt(1 - z) - acos(sqrt(z) ) ); % = -xin
+m2nxi = 2i*np*( sqrt(z).*sqrt(1 - z) - acos(sqrt(z) ) ); % = -2*n*xin
 
 phi = 2*z - 1 + 2*sqrt(z)*sqrt(z - 1);
 if T == 1
     p = real( 1/z^(1/4)/(z-1)^(1/4)*...
-        (exp(-np*mxi)*sqrt(phi)*(phi/z)^(alpha/2) + ... 
-        z^(-alpha)*exp(np*mxi)*1i/sqrt(phi)*(phi/z)^(-alpha/2) ) );
+        (exp(-m2nxi)*sqrt(phi)*(phi/z)^(alpha/2) + ... 
+        z^(-alpha)*exp(m2nxi)*1i/sqrt(phi)*(phi/z)^(-alpha/2) ) );
     return;
-%     p = real( (4*np)^(-1/2 - alpha/2)/sqrt(2*pi)/z^(1/4)/(z-1)^(1/4)*...
-%         (exp(-np*mxi)*sqrt(phi)*(phi/z)^(alpha/2) + ... 
-%         z^(-alpha)*exp(np*mxi)*1i/sqrt(phi)*(phi/z)^(-alpha/2) ) );
 end
 R = [0, 0];
 % Getting the higher order terms is hard-coded for speed and code length, but
@@ -467,22 +426,9 @@ elseif (alpha == 1)
         [-0.02604166666666667, 0.006510416666666667i]*(z - 1)^(-2) )/np^1;
 end
 
-% R = R*[1/2^alpha, 0; 0, 2^alpha]*[sqrt(phi), 1i/sqrt(phi);
-%     -1i/sqrt(phi), sqrt(phi) ]/2/z^(1/4)/(z-1)^(1/4)* ...
-%     [(phi/z)^(alpha/2), 0; 0, (phi/z)^(-alpha/2)];
-% R = R*[1, 0; 0, 4^alpha]*[sqrt(phi), 1i/sqrt(phi);
-%     -1i/sqrt(phi), sqrt(phi) ]/z^(1/4)/(z-1)^(1/4)* ...
-%     [(phi/z)^(alpha/2), 0; 0, (phi/z)^(-alpha/2)];
-% R = [ ( sqrt(phi)*R(1) - 4^alpha*1i/sqrt(phi)*R(2) )*(phi/z)^(alpha/2),  ...
-%     (1i/sqrt(phi)*R(1) + 4^alpha*sqrt(phi)*R(2) )*(phi/z)^(-alpha/2)];
-% [TODO] Check the taking out of cst factors in z
-% p = real(R*[exp(-np*mxi) ; z^(-alpha)*exp(np*mxi) ] );
-p = real( (sqrt(phi)*R(1) - 4^alpha*1i/sqrt(phi)*R(2) )*(phi/z)^(alpha/2)*...
-    exp(-np*mxi) + (1i/sqrt(phi)*R(1) + 4^alpha*sqrt(phi)*R(2) )*...
-    (phi*z)^(-alpha/2)*exp(np*mxi) );
-% p = real( (4*np)^(-1/2 - alpha/2)*sqrt(2/pi)*2^alpha...
-%     /sqrt(1 - 4i*4^alpha*sum((UQ(2,2,1:mk,1) + UQ(1,2,1:mk,1))./np ...
-%     .^reshape(1:mk,[1,1,mk]) ) )*R*[exp(-np*mxi) ; z^(-alpha)*exp(np*mxi) ] );
+p = real( ( (sqrt(phi)*R(1) - 4^alpha*1i/sqrt(phi)*R(2) )*(phi/z)^(alpha/2)*...
+    exp(-m2nxi) + (1i/sqrt(phi)*R(1) + 4^alpha*sqrt(phi)*R(2) )*...
+    (phi*z)^(-alpha/2)*exp(m2nxi) )/z^(1/4)/(z - 1)^(1/4) );
 
 end
 
@@ -492,38 +438,19 @@ end
 function p = pl(np, y, alpha, T)
 % [FIXME] Ensure analytic continuation of all functions to avoid adding eps*1i.
 z = (1+eps*1i)*y/4/np;
-pb = -1i*(pi/2 + sqrt(z).*sqrt(1 - z) - acos(sqrt(z) ) ); % = sqrtphitn
+npb = 2*np*(pi/2 + sqrt(z).*sqrt(1 - z) - acos(sqrt(z) ) ); % = 2i n sqrtphitn
 
 if T == 1
-    p = real( 2*sqrt(pi)*(-1)^np*sqrt(1i*np*pb)/z^(1/4)/(1 - z)^(1/4)*...
+    p = real( sqrt(2*pi)*(-1)^np*sqrt(npb)/z^(1/4)/(1 - z)^(1/4)*...
         z^(-alpha/2)*(sin( (alpha + 1)/2*acos(2*z - 1) - pi*alpha/2)*...
-        besselj(alpha,2i*np*pb) + cos( (alpha + 1)/2*acos(2*z - 1) - ...
-        pi*alpha/2)*(besselj(alpha-1,2i*np*pb) - alpha/(2i*np*pb)*...
-        besselj(alpha, 2i*np*pb) ) ) );
-%         pi*alpha/2)*4^alpha*(besselj(alpha-1,2i*np*pb) - alpha/(2i*np*pb)*...
-%         besselj(alpha, 2i*np*pb) ) ) );
-    if 0
-    ptest = real( (4*np)^(-1/2 - alpha/2)*sqrt(2)*2^alpha...
-        *(-1)^np*sqrt(1i*np*pb)/z^(1/4)/ ...
-        (1 - z)^(1/4)*z^(-alpha/2)*(sin( (alpha + 1)/2*acos(2*z - 1) - ...
-        pi*alpha/2)*2^(-alpha)*besselj(alpha,2i*np*pb) + ...
-        cos( (alpha + 1)/2*acos(2*z - 1) - pi*alpha/2)*2^alpha* ...
-        (besselj(alpha-1,2i*np*pb) - alpha/(2i*np*pb)*besselj(alpha, ...
-        2i*np*pb) ) ) );
-    ptest = real( (4*np)^(-1/2 - alpha/2)*sqrt(2)*2^alpha...
-        /sqrt(1 - 4i*sum((UQ(2,2,1:mk,1) + UQ(1,2,1:mk,1))./np ...
-        .^reshape(1:mk,[1,1,mk]) ) )*(-1)^np*sqrt(1i*np*pb)/z^(1/4)/ ...
-        (1 - z)^(1/4)*z^(-alpha/2)*(sin( (alpha + 1)/2*acos(2*z - 1) - ...
-        pi*alpha/2)*2^(-alpha)*besselj(alpha,2i*np*pb) + ...
-        cos( (alpha + 1)/2*acos(2*z - 1) - pi*alpha/2)*2^alpha* ...
-        (besselj(alpha-1,2i*np*pb) - alpha/(2i*np*pb)*besselj(alpha, ...
-        2i*np*pb) ) ) );
-    end
+        besselj(alpha,npb) + cos( (alpha + 1)/2*acos(2*z - 1) - ...
+        pi*alpha/2)*(besselj(alpha-1,npb) - alpha/(npb)*...
+        besselj(alpha, npb) ) ) );
     return
 end
     
 % Use the series expansion of R because it is faster and we use pl only very
-% close to zero for less calls to besselj.
+% close to zero to have less calls to besselj.
 RL = [0, 0];
 if ( alpha == 0 )
     if ( T >= 5 )
@@ -592,28 +519,14 @@ elseif ( alpha == 1 )
         [-0.1203555135830268, -0.01703582895646388i]*z^6 + ...
         [-0.147667867682724, -0.01071718871208446i]*z^7 )/np^1;
 end
-% RL = RL*[2^(-alpha), 0; 0, 2^alpha]*[sin( (alpha + 1)/2*acos(2*z - 1) - ...
-% RL = RL*[1, 0; 0, 4^alpha]*[sin( (alpha + 1)/2*acos(2*z - 1) - ...
-%     pi*alpha/2), cos( (alpha + 1)/2*acos(2*z - 1) - pi*alpha/2) ; ...
-%     -1i*sin( (alpha - 1)/2*acos(2*z - 1) - pi*alpha/2), ...
-%     -1i*cos( (alpha - 1)/2*acos(2*z - 1) - pi*alpha/2)];
 
-% p = real( 2*sqrt(pi)*(-1)^np*sqrt(1i*np*pb)/z^(1/4)/ ...
-%     (1 - z)^(1/4)*z^(-alpha/2)*RL*[besselj(alpha,2i*np*pb); ...
-%     (besselj(alpha-1,2i*np*pb) - alpha/(2i*np*pb)*besselj(alpha, 2i*np*pb) )] );
-
-p = real( 2*sqrt(pi)*(-1)^np*sqrt(1i*np*pb)/z^(1/4)/ ...
+p = real( sqrt(2*pi)*(-1)^np*sqrt(npb)/z^(1/4)/ ...
     (1 - z)^(1/4)*z^(-alpha/2)*( (sin( (alpha + 1)/2*acos(2*z - 1) - ...
     pi*alpha/2)*RL(1) -1i*sin( (alpha - 1)/2*acos(2*z - 1) - pi*alpha/2)*...
-    RL(2)*4^alpha)*besselj(alpha,2i*np*pb) + (cos( (alpha + 1)/2*acos(2*z - ...
+    RL(2)*4^alpha)*besselj(alpha, npb) + (cos( (alpha + 1)/2*acos(2*z - ...
     1)- pi*alpha/2)*RL(1) - 1i*cos( (alpha - 1)/2*acos(2*z - 1) - pi*alpha/2)*...
-    RL(2)*4^alpha)*(besselj(alpha-1,2i*np*pb) - ...
-    alpha/(2i*np*pb)*besselj(alpha, 2i*np*pb) ) ) );
-% p = real( (4*np)^(-1/2 - alpha/2)*sqrt(2)*2^alpha...
-%     /sqrt(1 - 4i*4^alpha*sum((UQ(2,2,1:mk,1) + UQ(1,2,1:mk,1))./np ...
-%     .^reshape(1:mk,[1,1,mk]) ) )*(-1)^np*sqrt(1i*np*pb)/z^(1/4)/ ...
-%     (1 - z)^(1/4)*z^(-alpha/2)*RL*[besselj(alpha,2i*np*pb); ...
-%     (besselj(alpha-1,2i*np*pb) - alpha/(2i*np*pb)*besselj(alpha, 2i*np*pb) )] );
+    RL(2)*4^alpha)*(besselj(alpha-1, npb) - ...
+    alpha/npb*besselj(alpha, npb) ) ) );
 
 end
 
@@ -622,18 +535,11 @@ end
 % Compute the expansion of the orthonormal polynomial near 4n without e^(x/2)
 function p = pr(np, y, alpha, T)
 z = y/4/np;
-mxi = 2i*( sqrt(z).*sqrt(1 - z) - acos(sqrt(z) ) ); % = -xin
-fn = (np*3/2*mxi)^(2/3);
+fn = (np*3*1i*( sqrt(z).*sqrt(1 - z) - acos(sqrt(z) ) ))^(2/3);
 if T == 1
-    p = real( 2*sqrt(pi)/z^(1/4)/(z - 1)^(1/4)*z^(-alpha/2)* ...
+    p = real( 4*sqrt(pi)/z^(1/4)/(z - 1)^(1/4)*z^(-alpha/2)* ...
         (cos( (alpha + 1)/2*acos(2*z - 1) )*fn^(1/4)*airy(0,fn) + ...
         -1i*sin( (alpha + 1)/2*acos(2*z - 1) )*fn^(-1/4)*airy(1,fn) ) );
-%         -1i*4^alpha*sin( (alpha + 1)/2*acos(2*z - 1) )*fn^(-1/4)*airy(1,fn) ) );
-%     p = real( (4*np)^(-1/2 - alpha/2)*sqrt(2)*2^alpha...
-%         /sqrt(1 - 4i*4^alpha*sum((UQ(2,2,1:mk,1) + UQ(1,2,1:mk,1))./np ...
-%         .^reshape(1:mk,[1,1,mk]) ) )/z^(1/4)/(z - 1)^(1/4)*z^(-alpha/2)* ...
-%         (2^(-alpha)*cos( (alpha + 1)/2*acos(2*z - 1) )*fn^(1/4)*airy(0,fn) + ...
-%         -1i*2^alpha*sin( (alpha + 1)/2*acos(2*z - 1) )*fn^(-1/4)*airy(1,fn) ) );
     return
 end
 
@@ -706,15 +612,7 @@ elseif ( alpha == 1 )
         [-0.04460324252123175, -0.01087128029713879i]*z^7 )/np^1;
 end
 
-% RR = RR*[2^(-alpha), 0; 0, 2^alpha]*[cos( (alpha + 1)/2*acos(2*z - 1) ), ...
-% RR = RR*[1, 0; 0, 4^alpha]*[cos( (alpha + 1)/2*acos(2*z - 1) ), ...
-%     -1i*sin( (alpha + 1)/2*acos(2*z - 1) ) ; -1i*cos( (alpha - 1)/2* ...
-%     acos(2*z - 1) ), -sin( (alpha - 1)/2*acos(2*z - 1) )];
-
-% p = real( 2*sqrt(pi)/z^(1/4)/(z - 1)^(1/4)*z^(-alpha/2)* ...
-%     RR*[fn^(1/4)*airy(0,fn); fn^(-1/4)*airy(1,fn) ] );
-
-p = real( 2*sqrt(pi)/z^(1/4)/(z - 1)^(1/4)*z^(-alpha/2)* ...
+p = real( 4*sqrt(pi)/z^(1/4)/(z - 1)^(1/4)*z^(-alpha/2)* ...
     ( (RR(1)*cos( (alpha + 1)/2*acos(2*z - 1) ) -1i*cos( (alpha - 1)/2* ...
     acos(2*z - 1) )*RR(2)*4^alpha )*fn^(1/4)*airy(0,fn) + ...
     (-1i*sin( (alpha + 1)/2*acos(2*z - 1) )*RR(1) -sin( (alpha - 1)/2*...
