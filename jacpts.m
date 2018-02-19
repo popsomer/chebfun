@@ -1,4 +1,9 @@
-function [x, w, v] = jacpts(n, a, b, int, meth)
+%n = 161; alpha = -0.7; beta = 1/sqrt(2); [xStd, wStd, vStd] = jacpts(n,alpha,beta);
+%figure;for T =1:2:7,[xRH,wRH,vRH] =jacpts(n,alpha,beta,[-1,1], 'exp', [T,0,n+1]); semilogy(abs(xStd-xRH));hold on; end; legend(num2str((1:2:7)'));
+
+
+function [x, w, v] = jacpts(n, a, b, int, meth, param)
+% function [x, w, v] = jacpts(n, a, b, int, meth)
 %JACPTS  Gauss-Jacobi quadrature nodes and weights.
 %   X = JACPTS(N, ALPHA, BETA) returns the N roots of the degree N Jacobi
 %   polynomial with parameters ALPHA and BETA (which must both be > -1)
@@ -40,6 +45,8 @@ function [x, w, v] = jacpts(n, a, b, int, meth)
 % 'GW' by Nick Trefethen, March 2009 - algorithm adapted from [1].
 % 'REC' by Nick Hale, July 2011
 % 'ASY' by Nick Hale & Alex Townsend, May 2012 - see [2].
+% 'RH' by Peter Opsomer, February 2015 - see [3].
+% 'EXP' by Peter Opsomer, February 2018 - see [4].
 %
 % NOTE: The subroutines DO NOT SCALE the weights (with the exception of GW).
 % This is done in the main code to avoid duplication.
@@ -49,6 +56,10 @@ function [x, w, v] = jacpts(n, a, b, int, meth)
 %       rules", Math. Comp. 23:221-230, 1969.
 %   [2] N. Hale and A. Townsend, "Fast computation of Gauss-Jacobi 
 %       quadrature nodes and weights", SISC, 2012.
+%   [3] A. Deano, D. Huybrechs and P. Opsomer, Construction and implementation of asymptotic
+%       expansions for Jacobi-type orthogonal polynomials", Adv. Comput. Math. 42 (4), 2016
+%   [4] D. Huybrechs and P. Opsomer, "Arbitrary-order asymptotic expansions of
+%       generalized Gaussian quadrature rules", (in preparation).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % Defaults:
@@ -66,7 +77,8 @@ end
 
 % Check inputs:
 if ( nargin > 3 )
-    if ( nargin == 5 )
+%     if ( nargin == 5 )
+    if ( nargin >= 5 ) % TODO remove temp extra args param etc
         % Calling sequence = JACPTS(N, INTERVAL, METHOD)
         interval = int;
         method = meth;
@@ -81,7 +93,8 @@ if ( nargin > 3 )
             interval = int;
         end
     end
-    validStrings = {'default', 'GW', 'ASY', 'REC'};
+%     validStrings = {'default', 'GW', 'ASY', 'REC'};
+    validStrings = {'default', 'GW', 'ASY', 'REC', 'RH', 'EXP'};
     if ( ~any(strcmpi(method, validStrings)) )
         if ( strcmpi(method, 'GLR') )
             error('CHEBFUN:jacpts:glr', ...
@@ -118,7 +131,8 @@ elseif ( n == 1 )
 end
 
 % Special cases:
-if ( a == b )
+% if ( a == b )
+if ( a == b ) && ~strcmpi(method, 'rh') && ~strcmpi(method, 'exp')
     if ( a == 0 )  % Gauss-Legendre: alpha = beta = 0
         [x, w, v] = legpts(n, method);
         [x, w] = rescale(x, w, interval, a, b);
@@ -144,8 +158,18 @@ if ( a == b )
 end
 
 % Choose an algorithm:
-if ( n < 20 || (n < 100 && ~method_set) || strcmpi(method, 'rec') )
-    [x, w, v] = rec(n, a, b); % REC (Recurrence relation)
+if strcmpi(method, 'rh')
+    [x, w, v] = newton(n, a, b, 1); % RH (Newton on Riemann-Hilbert asy exp)
+elseif strcmpi(method, 'exp')
+    [x, w] = jacobiExp(n, a, b, param); % EXP (Explicit asy exp)
+%     [x, w] = jacobiExp(n, a, b); % EXP (Explicit asy exp)
+    v = sqrt(w'.*x);  % TODO FIX % Barycentric weights
+%     v = (-1).^(0:n-1)'.*sqrt(w'.*x);  % Barycentric weights
+%     v = v./max(abs(v));
+
+elseif ( n < 20 || (n < 100 && ~method_set) || strcmpi(method, 'rec') )
+%     [x, w, v] = rec(n, a, b); % REC (Recurrence relation)
+    [x, w, v] = newton(n, a, b, 0); % REC (Recurrence relation)
     
 elseif ( strcmpi(method, 'GW') )
     [x, w, v] = gw(n, a, b);  % GW  see [1]
@@ -156,7 +180,8 @@ else
 end
 
 % Compute the constant for the weights:
-if ( ~strcmpi(method,'GW') )
+if ( ~strcmpi(method,'GW') && ~strcmpi(method,'exp') )
+%     if ( ~strcmpi(method,'GW') )
     if ( n >= 100 )
         cte1 = ratioOfGammaFunctions(n+a+1, b);
         cte2 = ratioOfGammaFunctions(n+1, b);
@@ -233,11 +258,14 @@ end
 %% ------------------------- Routines for REC ---------------------------
 
 
-function [x, w, v] = rec(n, a, b)
+% function [x, w, v] = rec(n, a, b)
+%    [x1, ders1] = rec_main(n, a, b, 1); % Nodes and P_n'(x)
+%    [x2, ders2] = rec_main(n, b, a, 0); % Nodes and P_n'(x)
+function [x, w, v] = newton(n, a, b, rh)
 %REC   Compute nodes and weights using recurrrence relation.
 
-   [x1, ders1] = rec_main(n, a, b, 1); % Nodes and P_n'(x)
-   [x2, ders2] = rec_main(n, b, a, 0); % Nodes and P_n'(x)
+   [x1, ders1] = rec_main(n, a, b, 1, rh); % Nodes and P_n'(x)
+   [x2, ders2] = rec_main(n, b, a, 0, rh); % Nodes and P_n'(x)
    x = [-x2(end:-1:1) ; x1];
    ders = [ders2(end:-1:1) ; ders1];
    w = 1./((1-x.^2).*ders.^2)';        % Quadrature weights
@@ -245,9 +273,38 @@ function [x, w, v] = rec(n, a, b)
    
 end
 
-function [x, PP] = rec_main(n, a, b, flag)
+function [x, PP] = rec_main(n, a, b, flag, rh)
 %REC_MAIN   Jacobi polynomial recurrence relation.
-
+if rh
+    T = ceil(50/log(n) );
+    Dinf = 2^(-a/2-b/2);
+    Uright = zeros(2,2,T-1,ceil((T-1)/2));
+    Uleft = zeros(2,2,T-1,ceil((T-1)/2));
+    % About half of this tensor will not be used
+    Uright(:,:,1,1) = (4*a^2-1)/16*[Dinf,0;0,Dinf^(-1)]*[-1,1i; 1i,1]*[Dinf^(-1),0;0,Dinf]; %A1
+    Uleft(:,:,1,1) = (4*b^2-1)/16*[Dinf,0;0,Dinf^(-1)]*[1,1i; 1i,-1]*[Dinf^(-1),0;0,Dinf]; %B1
+% %     if T <= 2,        break;    end
+    Uright(:,:,2,1) = (4*a^2-1)/256*[Dinf,0;0,Dinf^(-1)]*[8*a+8*b-4*b^2+1, ...
+        1i*(-8*a-8*b+4*a^2+4*b^2-10) ; 1i*(-8*a-8*b-4*a^2 ...
+        -4*b^2+10), -8*a-8*b-4*b^2+1]*[Dinf^(-1),0;0,Dinf]; %A2
+    Uleft(:,:,2,1) = (4*b^2-1)/256*[Dinf,0;0,Dinf^(-1)]*[-(8*b+8*a-4*a^2+1), ...
+        1i*(-8*b-8*a+4*b^2+4*a^2-10) ; 1i*(-8*b-8*a-4*b^2 ...
+        -4*a^2+10), -(-8*b-8*a-4*a^2+1)]*[Dinf^(-1),0;0,Dinf]; %B2
+    
+    a = a+1; b = b+1;
+    Dinf = 2^(-a/2-b/2);
+    Ursh = zeros(2,2,T-1,ceil((T-1)/2));
+    Ulsh = zeros(2,2,T-1,ceil((T-1)/2));
+    Ursh(:,:,1,1) = (4*a^2-1)/16*[Dinf,0;0,Dinf^(-1)]*[-1,1i; 1i,1]*[Dinf^(-1),0;0,Dinf]; %A1
+    Ulsh(:,:,1,1) = (4*b^2-1)/16*[Dinf,0;0,Dinf^(-1)]*[1,1i; 1i,-1]*[Dinf^(-1),0;0,Dinf]; %B1
+    Ursh(:,:,2,1) = (4*a^2-1)/256*[Dinf,0;0,Dinf^(-1)]*[8*a+8*b-4*b^2+1, ...
+        1i*(-8*a-8*b+4*a^2+4*b^2-10) ; 1i*(-8*a-8*b-4*a^2 ...
+        -4*b^2+10), -8*a-8*b-4*b^2+1]*[Dinf^(-1),0;0,Dinf]; %A2
+    Ulsh(:,:,2,1) = (4*b^2-1)/256*[Dinf,0;0,Dinf^(-1)]*[-(8*b+8*a-4*a^2+1), ...
+        1i*(-8*b-8*a+4*b^2+4*a^2-10) ; 1i*(-8*b-8*a-4*b^2 ...
+        -4*a^2+10), -(-8*b-8*a-4*a^2+1)]*[Dinf^(-1),0;0,Dinf]; %B2
+    a = a-1; b = b-1;
+end
 % Asymptotic formula (WKB) - only positive x.
 if ( flag )
     r = ceil(n/2):-1:1;
@@ -264,7 +321,16 @@ l = 0;
 % Loop until convergence:
 while ( (norm(dx,inf) > sqrt(eps)/1000) && (l < 10) )
     l = l + 1;
-    [P, PP] = eval_Jac(x, n, a, b);
+    if rh
+        P = polyAsyRH(n, x, a, b, Uright, Uleft);
+%         error('der not impl');
+%         warning('Check weights and possibly multiply with factor ratioOfGammaFunctions(m,delta)?');
+        PP = n*polyAsyRH(n-1, x, a+1, b+1, Ursh, Ulsh); %Monic OP
+%         PP = n*polyAsyRH(n-1, x+1, a+1, b+1, Ursh, Ulsh); %Wrong Monic OP but converged because stopped at first iter with der too high
+        debug = 1;
+    else
+        [P, PP] = eval_Jac(x, n, a, b);
+    end
     dx = -P./PP; 
     x = x + dx;
 end
@@ -813,4 +879,261 @@ tB1 = @(theta) bary(theta, tB1, t, v);
 A2 = @(theta) bary(theta, A2, t, v);
 tB2 = @(theta) bary(theta, tB2, t, v);
 A3 = @(theta) bary(theta, A3, t, v);
+end
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% %%%%%%%%%%%%%%%%%%%%%%% Routines for RH algorithm %%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Compute the expansion of the orthonormal polynomial based on some heuristics
+% np = n or n-1, ...
+function p = polyAsyRH(np, x, alpha, beta, Uright, Uleft) %, Dinf, psi)
+% We could avoid these tests by splitting the loop k=1:mn into three parts
+% with heuristics for the bounding indices.
+%T = ceil(50/log(np) );
+if ( (alpha^2+ beta^2)/np > 1 )
+    warning('CHEBFUN:jacpts:inputs',['A large alpha or beta may lead to inaccurate ' ...
+        'results because the weight is low and R(z) is not close to identity.']);
+end
+p = nan*x;
+T = size(Uright,3);
+Dinf = 2^(-alpha/2-beta/2);
+for k = 1:length(x)
+    psiz = (alpha+beta)/2*acos(x(k)) -alpha*pi/2; %psi(x(k));
+    R = zeros(2,2, T-1);
+    for kt = 1:T-1
+        for m = 1:round(kt/2)
+            R(:,:,kt) = R(:,:,kt) + Uright(:,:,kt,m)./(x(k)-1).^m + Uleft(:,:,kt,m)./(x(k)+1).^m;
+        end
+    end
+    if x(k) < -0.8 % Does not occur due to splitting
+        % The fixed delta in the RHP would mean k ~ sqrt(n) in x_k = -1+jbk^2/n^2
+        p(k) = asyLeft(np, x(k), beta, T, psiz, Dinf, R);
+    elseif x(k) > 0.8
+        % The fixed delta in the RHP would mean k ~ sqrt(n) in x_k = 1 -jak^2/n^2
+        p(k) = asyRight(np, x(k), alpha, T, psiz, Dinf, R);
+    else
+        RI = eye(2);
+        for kt = 1:T-1
+            RI = RI + R(:,:,kt)/np^kt;
+        end
+%         p(k) = [2.^(1/2-n)./(sqrt(w(z) ).*(1+z).^(1/4).*(1-z).^(1/4) ), 0]*RI*...
+        p(k) = real([sqrt(2), 0]*RI*[Dinf*cos((np +1/2)*acos(x(k)) +psiz -pi/4); ...
+            -1i/Dinf*cos((np -1/2)*acos(x(k)) +psiz -pi/4)]);
+%         p(k) = asyBulk(np, x(k), alpha, beta, T);
+    end
+%     p(k) = p(k)*(1 - x(k))^(1/4 + alpha/2)*(1 + x(k))^(1/4 + beta/2)/2^np;
+    p(k) = p(k)*(1 - x(k))^(-1/4 -alpha/2)*(1 + x(k))^(-1/4 -beta/2)/2^np;
+end
+
+end
+
+% NOT NEEDED DUE TO SPLITTING: in newton(...)
+% % Compute the expansion of the monic polynomial in the left disk without the common factor before
+% function p = asyLeft(n, z, beta, T, psiz, Dinf, R)
+% 
+% if abs(z+1) < eps^(1/3)
+%     warning('z is close to -1 so use Q-s and series expansions in "method"')
+% end
+% brac = @(k) (k == 0) + (k~= 0)*prod(4*beta^2 -(2*(1:k)-1).^2)/(2^(2*k)*factorial(k) ); % = (beta,k)
+% % k = reshape(1:T-1, [1,1,T-1]);
+% % w = nan;
+% % s = arrayfun(@(y) brac(y-1), k)./2^k./(log(-z -sqrt(z-1).*sqrt(z+1)).^k)./(2*sqrt(z+1)*sqrt(z-1))*[Dinf 0; 0 Dinf^(-1)]*...
+% DeltaL = @(k) brac(k-1)./2^k./(log(-z -sqrt(z-1).*sqrt(z+1)).^k)./(2*sqrt(z+1)*sqrt(z-1))*[Dinf 0; 0 Dinf^(-1)]*...
+%     [sqrt(z + sqrt(z-1).*sqrt(z+1) ), 1i/sqrt(z + sqrt(z-1).*sqrt(z+1) ); ...
+%     -1i/sqrt(z + sqrt(z-1).*sqrt(z+1) ), sqrt(z + sqrt(z-1).*sqrt(z+1) ) ]*...
+%     [exp( 1i*(psiz -beta*pi/2) ) 0; 0 exp(-1i*(psiz -beta*pi/2))]*...
+%     [ ((-1).^k)./k.*(beta^2+k/2-1/4), 1i*(k-1/2) ; (-1).^(k+1).*1i.*(k-1/2), (beta^2+k/2-1/4)./k]*...
+%     [exp(-1i*(psiz -beta*pi/2)) 0; 0 exp(1i*(psiz -beta*pi/2) )]*...
+%     [sqrt(z + sqrt(z-1).*sqrt(z+1) ), -1i/sqrt(z + sqrt(z-1).*sqrt(z+1) ); ...
+%     1i/sqrt(z + sqrt(z-1).*sqrt(z+1) ), sqrt(z + sqrt(z-1).*sqrt(z+1) ) ]*[Dinf^(-1) 0; 0 Dinf];
+% % Actually [exp( 1i*(-1)^(angle(z-1) <= 0)*(psiz -beta*pi/2) ) 0; 0 exp(-1i*(-1)^(angle(z-1) <= 0)*(psiz -beta*pi/2))]*...
+% RL = eye(2);
+% s = zeros(2,2,T-1);
+% for k = 1:T-1
+%     s(:,:,k) = DeltaL(k);
+%     if mod(k,2)==0 % k is even: add extra matrix
+%         s(:,:,k) = s(:,:,k) -brac(k-1)*(4*beta^2+2*k-1)/2^(k+1)/k...
+%             /(log(-z-sqrt(z-1).*sqrt(z+1) ) )^k*eye(2);
+%     end
+%     RL = RL + (R(:,:,k)-s(:,:,k) )/n^k;
+%     for j = 1:(k-1)
+%         RL = RL - R(:,:,k-j)*s(:,:,j)/n^k;
+%     end
+% end
+% % p = real( [sqrt(pi*n*acos(-z))./((-2)^n.*sqrt(w(z)).*(1+z).^(1/4).*(1-z).^(1/4) ) ,  0]*RL*...
+% p = real( [sqrt(pi*n*acos(-z)).*(-1)^n ,  0]*RL*...
+%         [Dinf*sin(psiz -beta*pi/2 + acos(z)/2)*besselj(beta,n*acos(-z) ) + cos(psiz -beta*pi/2 + acos(z)/2)*...
+% 		(besselj(beta-1,n*acos(-z) ) - besselj(beta+1,n*acos(-z) ) )/2; ...
+%         -1i/Dinf*sin(psiz -beta*pi/2 -acos(z)/2)*besselj(beta,n*acos(-z) ) + cos(psiz -beta*pi/2 -acos(z)/2)*...
+%         (besselj(beta-1,n*acos(-z) ) - besselj(beta+1,n*acos(-z) ) )/2] );
+% end
+
+% Compute the expansion of the monic polynomial in the right disk without common
+% TODO: merge with asyLeft??
+function p = asyRight(n, z, alpha, T, psiz, Dinf, R)
+if abs(z-1) < eps^(1/3)
+    warning('z is close to -1 so use Q-s and series expansions in "method"')
+end
+brac = @(k) (k == 0) + (k~= 0)*prod(4*alpha^2 -(2*(1:k)-1).^2)/(2^(2*k)*factorial(k) ); % = (alpha,k)
+% k = reshape(1:T-1, [1,1,T-1]);
+% psi = nan;
+% s = arrayfun(@(y) brac(y-1), k)./2^k./(log(z + sqrt(z-1).*sqrt(z+1)).^k)./(2*sqrt(z+1)*sqrt(z-1))*[Dinf 0; 0 Dinf^(-1)]*...
+DeltaR = @(k) brac(k-1)./2^k./(log(z + sqrt(z-1).*sqrt(z+1)).^k)./(2*sqrt(z+1)*sqrt(z-1))*[Dinf 0; 0 Dinf^(-1)]*...
+    [sqrt(z + sqrt(z-1).*sqrt(z+1) ), 1i/sqrt(z + sqrt(z-1).*sqrt(z+1) ); ...
+    -1i/sqrt(z + sqrt(z-1).*sqrt(z+1) ), sqrt(z + sqrt(z-1).*sqrt(z+1) ) ]*...
+    [exp( 1i*(psiz +alpha*pi/2) ) 0; 0 exp(-1i*(psiz +alpha*pi/2))]*...
+    [ ((-1).^k)./k.*(alpha^2+k/2-1/4), -1i*(k-1/2) ; (-1).^k.*1i.*(k-1/2), (alpha^2+k/2-1/4)./k]*...
+    [exp(-1i*(psiz +alpha*pi/2)) 0; 0 exp(1i*(psiz +alpha*pi/2) )]*...
+    [sqrt(z + sqrt(z-1).*sqrt(z+1) ), -1i/sqrt(z + sqrt(z-1).*sqrt(z+1) ); ...
+    1i/sqrt(z + sqrt(z-1).*sqrt(z+1) ), sqrt(z + sqrt(z-1).*sqrt(z+1) ) ]*[Dinf^(-1) 0; 0 Dinf];
+% Actually [exp( 1i*(-1)^(angle(z-1) <= 0)*(psiz ...
+RR = eye(2);
+s = zeros(2,2,T-1);
+for k = 1:T-1
+    s(:,:,k) = DeltaR(k);
+    if mod(k,2)==0 % k is even: add extra matrix
+        s(:,:,k) = s(:,:,k) -brac(k-1)*(4*alpha^2+2*k-1)/2^(k+1)/k...
+            /(log(z+sqrt(z-1).*sqrt(z+1) ) )^k*eye(2);
+    end
+    RR = RR + (R(:,:,k)-s(:,:,k) )/n^k; % Avoids defining R_0^{right} = I
+    for j = 1:(k-1)
+        RR = RR - R(:,:,k-j)*s(:,:,j)/n^k;
+    end
+end
+% p = real([sqrt(pi*n*acos(z))./(2^n.*sqrt(w(z) ).*(1+z).^(1/4).*(1-z).^(1/4) ),  0]*RR*...
+p = real([sqrt(pi*n*acos(z)),  0]*RR*...
+    [Dinf*cos(psiz +alpha*pi/2 + acos(z)/2)*besselj(alpha,n*acos(z) ) + sin(psiz +alpha*pi/2 + acos(z)/2)*...
+    (besselj(alpha-1,n*acos(z) ) - besselj(alpha+1,n*acos(z) ) )/2;  ...
+    -1i/Dinf*cos(psiz +alpha*pi/2 -acos(z)/2)*besselj(alpha,n*acos(z) ) + sin(psiz +alpha*pi/2 -acos(z)/2)*...
+    (besselj(alpha-1,n*acos(z) ) - besselj(alpha+1,n*acos(z) ) )/2] );
+end
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% %%%%%%%%%%%%%%%%%%%% Routine for explicit expansion %%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function [x,w] = jacobiExp(n, alpha, beta, param) %T, il, ir)
+
+% w = zeros(1, n);
+
+if 1
+    il = param(2); ir = param(3);
+% %     il = 0; ir = n+1;
+else
+% %     il = max(round(sqrt(n)), 7);
+    % Heuristics to switch between Bessel regions and bulk
+% %     ir = n - max(round(sqrt(n)), 7);
+end
+
+% This is a heuristic for the number of terms in the expansions that follow.
+% % T = ceil(50/log(n) );
+T = param(1);
+if ( alpha^2/n > 1 )
+    warning('CHEBFUN:lagpts:inputs',['A large alpha may lead to inaccurate ' ...
+        'results because the weight is low and R(z) is not close to identity.']);
+end
+d = 1/(2*n+alpha+beta+1);
+
+% t = cos((4*(il+1:ir-1) +2*alpha +3)/(4*n +2*alpha +2*beta +2) )';
+t = cos((4*n -4*(il+1:ir-1) +2*alpha +3)/(4*n +2*alpha +2*beta +2)*pi )';
+
+% jak = besselroots(alpha, il); % To separate fct to allow using symmetry
+% jbk = besselroots(beta, n-ir+1);
+
+bulk = t*0;
+wbulk = t*0;
+
+if T >= 7
+    bulk = bulk+ 1/240*(576*alpha^6 - 576*beta^6 + (96*alpha^6 + 96*beta^6 + 80*(8*alpha^2 - 3)*beta^4 ...
+        - 240*alpha^4 + 2*(320*alpha^4 - 440*alpha^2 + 101)*beta^2 + 202*alpha^2 - 39)*t.^5 ...
+        -320*(alpha^2 - 6)*beta^4 + 240*(alpha^2 - beta^2)*t.^4 - 1920*alpha^4 ...
+        -10*(32*(5*alpha^2 + 3)*beta^4 + 96*alpha^4 + 2*(80*alpha^4 - 152*alpha^2 - 97)*beta^2 ...
+        - 194*alpha^2 + 99)*t.^3 + 16*(20*alpha^4 - 127)*beta^2 + 160*(6*alpha^6 - 6*beta^6 +...
+        2*(alpha^2 + 15)*beta^4 - 30*alpha^4 - (2*alpha^4 + 41)*beta^2 + 41*alpha^2)*t.^2 + ...
+        2032*alpha^2 + 15*(96*alpha^6 + 96*beta^6 + 16*(4*alpha^2 - 23)*beta^4 - 368*alpha^4 ...
+        + 2*(32*alpha^4 - 72*alpha^2 + 223)*beta^2 + 446*alpha^2 - 173)*t)*d^6./(t.^4 - 2*t.^2 +1);
+end
+if T >= 5
+    bulk = bulk - 1/24*(32*alpha^4 - 32*beta^4 - (16*alpha^4 + 16*beta^4 + 4*(12*alpha^2 -5)*beta^2 - 20*alpha^2 + 5)*t.^3 ...
+        - 24*(alpha^2 - beta^2)*t.^2 - 40*alpha^2 + 40*beta^2+ 3*(16*alpha^4 + 16*beta^4 + 4*(4*alpha^2 - 7)*beta^2 ...
+        - 28*alpha^2 + 11)*t)*d^4./(t.^2- 1) ;
+end
+if T >= 3
+    bulk = bulk + 1/2*(2*alpha^2 - 2*beta^2 + (2*alpha^2 + 2*beta^2 - 1)*t)*d^2;
+end
+
+[xL, wL] = jacobiDisk(n,alpha,beta,T,il);
+[xR, wR] = jacobiDisk(n,beta,alpha,T,n-ir+1);
+
+x = [xL; bulk+t; flipud(-xR)];
+w = transpose((1-x).^alpha.*(1+x).^beta.*[wL; 4*pi*d^2*sqrt(1 -t.^2).*(1+wbulk); flipud(wR)]);
+
+% serWeiLensGen = 2*(pi + 4*pi*alpha^2 + 4*pi*beta^2 - (pi + 4*pi*alpha^2 + 4*pi*beta^2 + 4*pi*alpha +4*(pi + pi*alpha)*beta)*t^2 +...
+%     4*pi*alpha + 4*(pi + pi*alpha)*beta)*d^4/(sqrt(t +1)*sqrt(-t + 1)) + 4*(pi + pi*alpha + pi*beta ...
+%     - (pi + pi*alpha +pi*beta)*t)*d^3*sqrt(t + 1)/sqrt(-t + 1) + 4*pi*d^2*sqrt(t + 1)*sqrt(-t + 1);
+
+% serNodLensGen = 1/240*(576*alpha^6 - 576*beta^6 + (96*alpha^6 + 96*beta^6 + 80*(8*alpha^2 - 3)*beta^4
+% - 240*alpha^4 + 2*(320*alpha^4 - 440*alpha^2 + 101)*beta^2 + 202*alpha^2 - 39)*t^5 -
+% 320*(alpha^2 - 6)*beta^4 + 240*(alpha^2 - beta^2)*t^4 - 1920*alpha^4 -
+% 10*(32*(5*alpha^2 + 3)*beta^4 + 96*alpha^4 + 2*(80*alpha^4 - 152*alpha^2 - 97)*beta^2
+% - 194*alpha^2 + 99)*t^3 + 16*(20*alpha^4 - 127)*beta^2 + 160*(6*alpha^6 - 6*beta^6 +
+% 2*(alpha^2 + 15)*beta^4 - 30*alpha^4 - (2*alpha^4 + 41)*beta^2 + 41*alpha^2)*t^2 +
+% 2032*alpha^2 + 15*(96*alpha^6 + 96*beta^6 + 16*(4*alpha^2 - 23)*beta^4 - 368*alpha^4
+% + 2*(32*alpha^4 - 72*alpha^2 + 223)*beta^2 + 446*alpha^2 - 173)*t)*d^6/(t^4 - 2*t^2 +1) 
+% - 1/24*(32*alpha^4 - 32*beta^4 - (16*alpha^4 + 16*beta^4 + 4*(12*alpha^2 -5)*beta^2 - 20*alpha^2 + 5)*t^3 - 24*(alpha^2 - beta^2)*t^2 ...
+%     - 40*alpha^2 + 40*beta^2+ 3*(16*alpha^4 + 16*beta^4 + 4*(4*alpha^2 - 7)*beta^2 - 28*alpha^2 + 11)*t)*d^4/(t^2- 1) 
+% + 1/2*(2*alpha^2 - 2*beta^2 + (2*alpha^2 + 2*beta^2 - 1)*t)*d^2 + t
+
+end
+
+% Evaluate the asymptotic expansions of ix nodes and weights in one of the disks: default left disk 
+function [x,w] = jacobiDisk(n, alpha, beta, T, ix)
+jbk = besselroots(beta, ix);
+x = 0*jbk;
+w = 0*jbk;
+
+d = 1/(2*n+alpha+beta+1);
+% z = nan
+if T >= 7
+    x = x -1/2835*(9*jbk.^6 - 18*(7*alpha^2 + 5*beta^2 - 3)*jbk.^4 + (328*beta^4 + (1512*alpha^2- 575)*beta^2 + 567*alpha^2 - 113)*jbk.^2 ...
+        - (2835*alpha^6 + 247*beta^6 +1407*(3*alpha^2 - 1)*beta^4 - 8505*alpha^4 + 21*(405*alpha^4 - 600*alpha^2 +...
+        133)*beta^2 + 8379*alpha^2 - 1633))*d^6;
+    w = w + 1/2835*(2835*alpha^6 + 247*beta^6 - 36*jbk.^6 + 1407*(3*alpha^2 - 1)*beta^4 + ...
+        54*(7*alpha^2 + 5*beta^2 - 3)*jbk.^4 - 8505*alpha^4 + 21*(405*alpha^4 - 600*alpha^2 +133)*beta^2 ...
+        - 2*(328*beta^4 + (1512*alpha^2 - 575)*beta^2 + 567*alpha^2 - 113)*jbk.^2+ 8379*alpha^2 - 1633)*d^6;
+end
+if T >= 5
+    x = x + 1/45*(2*jbk.^4 - 3*(5*alpha^2 + 3*beta^2 - 2)*jbk.^2 + 45*alpha^4 + 7*beta^4 + 20*(3*alpha^2 - 1)*beta^2 - 60*alpha^2 + 13)*d^4;
+    w = w + 1/45*(45*alpha^4 + 7*beta^4 + 6*jbk.^4 + 20*(3*alpha^2 - 1)*beta^2 - 6*(5*alpha^2 + 3*beta^2 - 2)*jbk.^2 - 60*alpha^2 + 13)*d^4;
+end
+if T >= 3
+    x = x - 1/3*(jbk.^2 - (3*alpha^2 + beta^2 - 1))*d^2;
+    w = w + 1/3*(3*alpha^2 + beta^2 - 2*jbk.^2 - 1)*d^2;
+end
+
+x = -1 + 2*d^2*jbk.^2.*(1 +x);
+w = 8*d^2*besselj(beta-1,jbk).^(-2).*(1 +w);
+
+% serNodBounStd =  -2/2835*(9*jbk^8 - 18*(7*alpha^2 + 5*beta^2 - 3)*jbk^6 + (328*beta^4 + (1512*alpha^2 ...
+% - 575)*beta^2 + 567*alpha^2 - 113)*jbk^4 - (2835*alpha^6 + 247*beta^6 + ...
+% 1407*(3*alpha^2 - 1)*beta^4 - 8505*alpha^4 + 21*(405*alpha^4 - 600*alpha^2 + ...
+% 133)*beta^2 + 8379*alpha^2 - 1633)*jbk^2)*z^8 + 2/45*(2*jbk^6 - 3*(5*alpha^2 + ...
+% 3*beta^2 - 2)*jbk^4 + (45*alpha^4 + 7*beta^4 + 20*(3*alpha^2 - 1)*beta^2 - 60*alpha^2 ...
+% + 13)*jbk^2)*z^6 - 2/3*(jbk^4 - (3*alpha^2 + beta^2 - 1)*jbk^2)*z^4 + 2*jbk^2*z^2 - 1;
+% 
+% serWeiBounStd = 8/2835*(2835*alpha^6 + 247*beta^6 - 36*jbk^6 + 1407*(3*alpha^2 - 1)*beta^4 + ...
+% 54*(7*alpha^2 + 5*beta^2 - 3)*jbk^4 - 8505*alpha^4 + 21*(405*alpha^4 - 600*alpha^2 + ...
+% 133)*beta^2 - 2*(328*beta^4 + (1512*alpha^2 - 575)*beta^2 + 567*alpha^2 - 113)*jbk^2 ...
+% + 8379*alpha^2 - 1633)*z^8/jbm^2 + 8/45*(45*alpha^4 + 7*beta^4 + 6*jbk^4 + ...
+% 20*(3*alpha^2 - 1)*beta^2 - 6*(5*alpha^2 + 3*beta^2 - 2)*jbk^2 - 60*alpha^2 + ...
+% 13)*z^6/jbm^2 + 8/3*(3*alpha^2 + beta^2 - 2*jbk^2 - 1)*z^4/jbm^2 + 8*z^2/jbm^2;
+
 end
